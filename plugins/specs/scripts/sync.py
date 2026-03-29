@@ -147,6 +147,8 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         filename = doc.get("filename", f"{doc_id}.md")
         remote_hash = doc.get("content_hash", "")
         version = doc.get("version", 1)
+        feature_status = doc.get("feature_status", "")
+        doc_status = doc.get("doc_status", "")
         source_url = doc.get("source_url", "")
 
         local_dir = os.path.join(specs_path, feature_name)
@@ -181,6 +183,10 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
             "spec_doc_id": doc_id,
             "last_synced": now,
         }
+        if feature_status:
+            meta["feature_status"] = feature_status
+        if doc_status:
+            meta["doc_status"] = doc_status
         if source_url:
             meta["source"] = source_url
 
