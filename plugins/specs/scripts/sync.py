@@ -615,8 +615,25 @@ def list_bugs(project_id=None):
             print(f"        {status} — reported by {reporter}")
 
 
-def create_bug(project_id, title, description, severity="medium"):
-    """Create a bug report."""
+def _embed_images(description, image_paths):
+    """Append base64-encoded images to the description markdown."""
+    import base64
+    import mimetypes
+    for path in image_paths:
+        abs_path = os.path.abspath(path)
+        if not os.path.isfile(abs_path):
+            print(f"specs: image not found: {path}", file=sys.stderr)
+            continue
+        mime = mimetypes.guess_type(abs_path)[0] or "image/png"
+        with open(abs_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        name = os.path.basename(abs_path)
+        description += f"\n\n![{name}](data:{mime};base64,{data})"
+    return description
+
+
+def create_bug(project_id, title, description, severity="medium", image_paths=None):
+    """Create a bug report, optionally with attached images."""
     cfg = config.read_config()
     if not cfg:
         print("specs: no config found", file=sys.stderr)
@@ -630,6 +647,10 @@ def create_bug(project_id, title, description, severity="medium"):
     if severity not in BUG_SEVERITIES:
         print(f"specs: invalid severity '{severity}'. Must be one of: {', '.join(BUG_SEVERITIES)}", file=sys.stderr)
         sys.exit(1)
+
+    # Embed images into description
+    if image_paths:
+        description = _embed_images(description, image_paths)
 
     service_url = cfg["service_url"]
 
@@ -691,11 +712,22 @@ def main():
         proj = args[1] if len(args) > 1 and not args[1].startswith("-") else None
         list_bugs(proj)
     elif cmd == "bug":
-        if len(args) < 4:
-            print("Usage: sync.py bug <project-id> <title> <description> [severity]", file=sys.stderr)
+        # Parse --attach flags
+        images = []
+        filtered = []
+        i = 1
+        while i < len(args):
+            if args[i] == "--attach" and i + 1 < len(args):
+                images.append(args[i + 1])
+                i += 2
+            else:
+                filtered.append(args[i])
+                i += 1
+        if len(filtered) < 3:
+            print("Usage: sync.py bug <project-id> <title> <description> [severity] [--attach file ...]", file=sys.stderr)
             sys.exit(1)
-        sev = args[4] if len(args) > 4 else "medium"
-        create_bug(args[1], args[2], args[3], sev)
+        sev = filtered[3] if len(filtered) > 3 else "medium"
+        create_bug(filtered[0], filtered[1], filtered[2], sev, images or None)
     elif cmd == "post-tool-use":
         handle_post_tool_use()
     else:
