@@ -7,6 +7,8 @@ Usage:
     sync.py push <file_path>      — Push a single spec file
     sync.py status                — Show sync status of local spec files
     sync.py set-status <id> <status> — Set feature or document status
+    sync.py bugs <project-id>     — List bugs for a project
+    sync.py bug <project-id> <title> <description> [severity] — Create a bug
     sync.py post-tool-use         — Hook: read tool use JSON from stdin, push if spec
     sync.py --help                — Show this help
 """
@@ -550,6 +552,107 @@ def set_status(identifier, new_status):
 
 
 # ---------------------------------------------------------------------------
+# Bugs
+# ---------------------------------------------------------------------------
+
+BUG_SEVERITIES = ["low", "medium", "high", "critical"]
+
+
+def list_bugs(project_id=None):
+    """List bugs for a project or all configured projects."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    projects = cfg["projects"]
+
+    if project_id:
+        projects = [p for p in projects if p["id"] == project_id]
+        if not projects:
+            print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+            sys.exit(1)
+
+    for proj in projects:
+        url = f"{service_url}/api/portal/projects/{proj['id']}/bugs"
+        try:
+            status_code, body = api_request(url, headers=headers)
+        except ConnectionError as e:
+            print(f"specs: failed to fetch bugs for '{proj['id']}' — {e}", file=sys.stderr)
+            continue
+
+        if status_code != 200:
+            print(f"specs: failed to fetch bugs for '{proj['id']}' (HTTP {status_code})", file=sys.stderr)
+            continue
+
+        bugs = json.loads(body)
+        open_bugs = [b for b in bugs if b.get("status") not in ("closed", "resolved")]
+
+        if len(projects) > 1:
+            print(f"\n{proj['id']} ({len(open_bugs)} open)")
+        else:
+            print(f"specs: {len(open_bugs)} open bug(s) in '{proj['id']}'")
+
+        if not open_bugs:
+            print("  (no open bugs)")
+            continue
+
+        print()
+        for bug in open_bugs:
+            severity = bug.get("severity", "?")
+            status = bug.get("status", "?")
+            number = bug.get("number", "?")
+            title = bug.get("title", "untitled")
+            reporter = bug.get("reporterName") or bug.get("reporterEmail", "?")
+            sev_marker = {"critical": "!!!", "high": "!!", "medium": "!", "low": "."}.get(severity, "?")
+            print(f"  #{number:<4} [{sev_marker}] {title}")
+            print(f"        {status} — reported by {reporter}")
+
+
+def create_bug(project_id, title, description, severity="medium"):
+    """Create a bug report."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    if severity not in BUG_SEVERITIES:
+        print(f"specs: invalid severity '{severity}'. Must be one of: {', '.join(BUG_SEVERITIES)}", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    url = f"{service_url}/api/portal/projects/{project_id}/bugs"
+    try:
+        status_code, body = api_request(
+            url, method="POST", headers={**headers, "Content-Type": "application/json"},
+            data={"title": title, "description": description, "severity": severity},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to create bug — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to create bug (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    bug = json.loads(body)
+    print(f"specs: bug #{bug.get('number', '?')} created — {title}")
+    print(f"  view: {service_url}/portal/{project_id}/bugs/{bug['id']}")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -584,6 +687,15 @@ def main():
             print(f"  Document statuses: {', '.join(DOCUMENT_STATUSES)}", file=sys.stderr)
             sys.exit(1)
         set_status(args[1], args[2])
+    elif cmd == "bugs":
+        proj = args[1] if len(args) > 1 and not args[1].startswith("-") else None
+        list_bugs(proj)
+    elif cmd == "bug":
+        if len(args) < 4:
+            print("Usage: sync.py bug <project-id> <title> <description> [severity]", file=sys.stderr)
+            sys.exit(1)
+        sev = args[4] if len(args) > 4 else "medium"
+        create_bug(args[1], args[2], args[3], sev)
     elif cmd == "post-tool-use":
         handle_post_tool_use()
     else:
