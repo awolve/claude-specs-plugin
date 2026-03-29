@@ -1,6 +1,6 @@
 {
   "name": "specs-marketplace",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Awolve Spec Service plugin — sync spec files, comment, and collaborate",
   "owner": {
     "name": "Awolve",

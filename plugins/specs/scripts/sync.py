@@ -501,7 +501,7 @@ def set_status(identifier, new_status):
         import urllib.parse
         encoded_id = urllib.parse.quote(identifier, safe="")
         status_code, resp_body = api_request(
-            f"{service_url}/api/features/{encoded_id}",
+            f"{service_url}/api/features/lookup?id={encoded_id}",
             method="PATCH",
             headers={**headers, "Content-Type": "application/json"},
             data={"status": new_status},
@@ -538,7 +538,7 @@ def set_status(identifier, new_status):
                         import urllib.parse
                         encoded_id = urllib.parse.quote(feature_id, safe="")
                         status_code, resp_body = api_request(
-                            f"{service_url}/api/features/{encoded_id}",
+                            f"{service_url}/api/features/lookup?id={encoded_id}",
                             method="PATCH",
                             headers={**headers, "Content-Type": "application/json"},
                             data={"status": new_status},
