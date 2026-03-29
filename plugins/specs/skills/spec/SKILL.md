@@ -1,3 +1,8 @@
+---
+name: specs:spec
+description: Spec document sync and management — pull latest specs, push changes, check sync status. Use when the user mentions specs, spec files, spec documents, wants to work on specs, read specs, edit specs, or discuss feature specifications.
+---
+
 # Specs Sync Skill
 
 This plugin syncs spec documents between the local filesystem and the Awolve Spec Service (specs.awolve.ai).
