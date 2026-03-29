@@ -43,14 +43,22 @@ def _write_auth(data):
 
 
 def _get_azure_token():
-    """Get a fresh token from Azure CLI. Returns (token, env_name) or (None, None)."""
-    # Try alternate Azure config dir if set (isolated from user's az login)
+    """Get a fresh token from Azure CLI. Returns (token, env_name) or (None, None).
+
+    Tries in order:
+    1. SPECS_AZURE_CONFIG_DIR env var (explicit override)
+    2. ~/.cortex-envs/cortex-web/.azure (Cortex terminals — always logged in)
+    3. Default az CLI (uses AZURE_CONFIG_DIR or ~/.azure)
+    """
     alt_azure_config = os.environ.get("SPECS_AZURE_CONFIG_DIR", "")
     if alt_azure_config:
         alt_azure_config = os.path.expanduser(alt_azure_config)
+    cortex_web_config = os.path.expanduser("~/.cortex-envs/cortex-web/.azure")
     envs_to_try = []
     if alt_azure_config and os.path.isdir(alt_azure_config):
         envs_to_try.append(({**os.environ, "AZURE_CONFIG_DIR": alt_azure_config}, "alternate"))
+    if os.path.isdir(cortex_web_config):
+        envs_to_try.append(({**os.environ, "AZURE_CONFIG_DIR": cortex_web_config}, "cortex-web"))
     envs_to_try.append((None, "default"))
 
     for env, name in envs_to_try:
@@ -69,11 +77,17 @@ def _get_azure_token():
 
 
 def _get_azure_email():
-    """Get current Azure CLI user email."""
+    """Get current Azure CLI user email. Uses same config dir resolution as _get_azure_token."""
     alt_azure_config = os.environ.get("SPECS_AZURE_CONFIG_DIR", "")
     if alt_azure_config:
         alt_azure_config = os.path.expanduser(alt_azure_config)
-    env = {**os.environ, "AZURE_CONFIG_DIR": alt_azure_config} if alt_azure_config and os.path.isdir(alt_azure_config) else None
+    cortex_web_config = os.path.expanduser("~/.cortex-envs/cortex-web/.azure")
+    if alt_azure_config and os.path.isdir(alt_azure_config):
+        env = {**os.environ, "AZURE_CONFIG_DIR": alt_azure_config}
+    elif os.path.isdir(cortex_web_config):
+        env = {**os.environ, "AZURE_CONFIG_DIR": cortex_web_config}
+    else:
+        env = None
     try:
         result = subprocess.run(
             ["az", "account", "show", "--query", "user.name", "-o", "tsv"],

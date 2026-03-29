@@ -9,6 +9,12 @@ This plugin syncs spec documents between the local filesystem and the Awolve Spe
 - When the user wants to see the latest version of a spec
 - When the user edits a spec file and it needs to be pushed upstream
 
+## Important: Always pull before reading specs
+
+**Before reading or working with spec files, always run `/specs-pull` first** to ensure you have the latest versions. Specs may have been updated by other team members or through the portal since the last session. The SessionStart hook handles this automatically for new sessions, but mid-session or after `/clear` you must pull manually.
+
+Do not assume local spec files are current — pull first, then read.
+
 ## Commands
 
 - `/specs-pull` — Pull latest spec files from the service
