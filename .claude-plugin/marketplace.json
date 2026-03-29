@@ -1,0 +1,17 @@
+{
+  "name": "specs-marketplace",
+  "version": "0.5.1",
+  "description": "Awolve Spec Service plugin — sync spec files, comment, and collaborate",
+  "owner": {
+    "name": "Awolve",
+    "url": "https://awolve.ai"
+  },
+  "plugins": [
+    {
+      "name": "specs",
+      "description": "Sync spec files with Awolve Spec Service — auto-pull on session start, auto-push on save",
+      "source": "./plugins/specs",
+      "category": "development"
+    }
+  ]
+}
