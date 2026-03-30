@@ -81,7 +81,7 @@ def file_content_hash(content):
 def api_request(url, method="GET", headers=None, data=None):
     """Make an HTTP request. Returns (status_code, response_body_str)."""
     headers = headers or {}
-    headers.setdefault("User-Agent", "claude-specs-plugin/0.1.0")
+    headers.setdefault("User-Agent", "awolve-specs-plugin/1.0.0")
 
     body_bytes = None
     if data is not None:

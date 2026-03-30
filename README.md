@@ -13,8 +13,8 @@ Claude Code plugin for syncing spec files with [Awolve Spec Service](https://spe
 Run these as slash commands inside Claude Code:
 
 ```
-/plugin marketplace add awolve/claude-specs-plugin
-/plugin install specs@specs-marketplace
+/plugin marketplace add awolve/open-claude-plugins
+/plugin install specs@awolve-open-claude-plugins
 /reload-plugins
 ```
 
