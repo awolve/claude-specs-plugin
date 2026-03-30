@@ -23,7 +23,7 @@ If it fails, tell the user to run `az login` first (or `! az login` in Claude Co
 
 ### Alternative: API key (for external users)
 
-If the user doesn't have Azure CLI, they need an API key from the spec service portal. Ask them for it, then:
+If the user doesn't have Azure CLI, they need an API key. They can generate one at https://specs.awolve.ai/portal/settings (log in first, then click "Generate API key"). Ask them for it, then:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login "<api-key>" "<email>" "https://specs.awolve.ai"
