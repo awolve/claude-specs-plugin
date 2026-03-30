@@ -624,6 +624,94 @@ def list_bugs(project_id=None):
             print(f"        {status} — reported by {reporter}")
 
 
+def list_backlog(project_id=None):
+    """List backlog items for a project or all configured projects."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    projects = cfg["projects"]
+
+    if project_id:
+        projects = [p for p in projects if p["id"] == project_id]
+        if not projects:
+            print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+            sys.exit(1)
+
+    for proj in projects:
+        url = f"{service_url}/api/portal/projects/{proj['id']}/backlog"
+        try:
+            status_code, body = api_request(url, headers=headers)
+        except ConnectionError as e:
+            print(f"specs: failed to fetch backlog for '{proj['id']}' — {e}", file=sys.stderr)
+            continue
+
+        if status_code != 200:
+            print(f"specs: failed to fetch backlog for '{proj['id']}' (HTTP {status_code})", file=sys.stderr)
+            continue
+
+        items = json.loads(body)
+        active = [i for i in items if i.get("status") not in ("completed", "archived")]
+
+        if len(projects) > 1:
+            print(f"\n{proj['id']} ({len(active)} active)")
+        else:
+            print(f"specs: {len(active)} active backlog item(s) in '{proj['id']}'")
+
+        if not active:
+            print("  (no active items)")
+            continue
+
+        print()
+        for item in active:
+            priority = item.get("priority", "?")
+            status = item.get("status", "?")
+            title = item.get("title", "untitled")
+            feature_id = item.get("featureId")
+            pri_marker = {"high": "!!!", "medium": "!!", "low": "!"}.get(priority, "?")
+            promoted = f" → {feature_id}" if feature_id else ""
+            print(f"  [{pri_marker}] {title}")
+            print(f"       {status}{promoted}")
+
+
+def create_backlog_item(project_id, title, description=None, priority="medium"):
+    """Create a new backlog item."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    url = f"{service_url}/api/portal/projects/{project_id}/backlog"
+    payload = json.dumps({"title": title, "description": description, "priority": priority})
+    headers["Content-Type"] = "application/json"
+
+    try:
+        status_code, body = api_request(url, method="POST", headers=headers, data=payload)
+    except ConnectionError as e:
+        print(f"specs: failed to create backlog item — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to create backlog item (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    item = json.loads(body)
+    print(f"specs: created backlog item '{item.get('title')}' in '{project_id}' (priority: {item.get('priority')})")
+
+
 def _embed_images(description, image_paths):
     """Append base64-encoded images to the description markdown."""
     import base64
@@ -737,6 +825,16 @@ def main():
             sys.exit(1)
         sev = filtered[3] if len(filtered) > 3 else "medium"
         create_bug(filtered[0], filtered[1], filtered[2], sev, images or None)
+    elif cmd == "backlog":
+        proj = args[1] if len(args) > 1 and not args[1].startswith("-") else None
+        list_backlog(proj)
+    elif cmd == "backlog-add":
+        if len(args) < 3:
+            print("Usage: sync.py backlog-add <project-id> <title> [description] [priority]", file=sys.stderr)
+            sys.exit(1)
+        desc = args[3] if len(args) > 3 else None
+        pri = args[4] if len(args) > 4 else "medium"
+        create_backlog_item(args[1], args[2], desc, pri)
     elif cmd == "post-tool-use":
         handle_post_tool_use()
     else:
