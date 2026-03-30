@@ -10,15 +10,19 @@ Claude Code plugin for syncing spec files with [Awolve Spec Service](https://spe
 
 ## Install
 
-```bash
-claude marketplace add github:awolve/claude-specs-plugin
-claude plugin install specs@specs-marketplace
+Run these as slash commands inside Claude Code:
+
+```
+/plugin marketplace add awolve/claude-specs-plugin
+/plugin install specs@specs-marketplace
+/reload-plugins
 ```
 
 ## Setup
 
-1. **Login** — run `/specs-login` to authenticate with the spec service
-2. **Configure project** — create `.claude/specs.local.md` in your project root:
+1. **Generate API key** — go to [specs.awolve.ai/portal/settings](https://specs.awolve.ai/portal/settings) and generate a key
+2. **Login** — run `/specs-login` in Claude Code and paste your API key
+3. **Configure project** — create `.claude/specs.local.md` in your project root:
 
 ```yaml
 ---
