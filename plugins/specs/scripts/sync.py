@@ -430,7 +430,16 @@ def handle_post_tool_use():
     if not meta.get("spec_doc_id"):
         return
 
-    push(file_path)
+    try:
+        push(file_path)
+    except SystemExit as e:
+        # push() calls sys.exit(1) on errors — catch it so the error
+        # message (already printed to stderr by push()) is visible
+        # instead of silently dying
+        if e.code != 0:
+            print(f"specs: auto-push failed for {os.path.basename(file_path)} — see error above", file=sys.stderr)
+    except Exception as e:
+        print(f"specs: auto-push failed for {os.path.basename(file_path)} — {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
