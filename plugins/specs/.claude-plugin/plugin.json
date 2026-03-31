@@ -1,11 +1,12 @@
 {
   "name": "specs",
-  "version": "0.7.5",
+  "version": "0.8.1",
   "description": "Sync spec files with Awolve Spec Service — auto-pull on session start, auto-push on save",
   "author": {
     "name": "Awolve",
     "url": "https://awolve.ai"
   },
   "commands": "./commands/",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }
