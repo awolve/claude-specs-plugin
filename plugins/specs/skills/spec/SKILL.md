@@ -1,30 +1,61 @@
 ---
 name: specs:spec
-description: Spec document sync and management — pull latest specs, push changes, check sync status. Use when the user mentions specs, spec files, spec documents, wants to work on specs, read specs, edit specs, or discuss feature specifications.
+description: Spec-driven development — create, sync, and manage spec documents. Use when the user mentions specs, wants to create a spec, work on specs, read specs, edit specs, plan a feature, or discuss feature specifications.
 ---
 
-# Specs Sync Skill
+# Specs Plugin
 
-This plugin syncs spec documents between the local filesystem and the Awolve Spec Service (specs.awolve.ai).
+Spec-driven development workflow and sync with the Awolve Spec Service (specs.awolve.ai).
 
-## When to use
+## Spec-driven development
 
-- When the user mentions specs, spec files, or spec documents
-- When working on features that have spec documents
-- When the user wants to see the latest version of a spec
-- When the user edits a spec file and it needs to be pushed upstream
+If you're going to spec it, spec it properly. There is one spec format with three canonical files — use the ones that make sense for the feature.
 
-## Important: Always pull before reading specs
+### Canonical files
 
-**Before reading or working with spec files, always run `/specs-pull` first** to ensure you have the latest versions. Specs may have been updated by other team members or through the portal since the last session. The SessionStart hook handles this automatically for new sessions, but mid-session or after `/clear` you must pull manually.
+| File | Purpose | When to use |
+|------|---------|-------------|
+| `requirements.md` | What to build and why | When stakeholders need to approve the what |
+| `design.md` | How to build it | Always — minimum viable spec |
+| `plan.md` | Implementation breakdown | When the build needs a task breakdown |
 
-Do not assume local spec files are current — pull first, then read.
+These are the only spec document names. Other files in the folder are supporting material (diagrams, schemas) — only valid if referenced by one of the three.
 
-## Commands
+### Commands — spec creation
+
+| Command | What it does |
+|---------|-------------|
+| `/spec requirements` | Write `requirements.md` — push to service — stop for review |
+| `/spec design` | Write `design.md` — push — stop for review |
+| `/spec infra` | Enrich `design.md` with infrastructure details (SIGL-inspired) |
+| `/spec plan` | Write `plan.md` — push — ready to implement |
+| `/retro-spec` | Document work after the fact (`design.md` + optional `plan.md`) |
+
+Each phase is a separate command invocation. Do not write multiple spec files in one session unless the user explicitly asks.
+
+### Flows
+
+**Stakeholder-driven:** requirements → review → design → review → (infra) → plan → review → implement
+**Self-directed:** design → (infra) → plan → implement
+**Small feature:** design → implement
+**No spec:** build it → optionally `/retro-spec`
+
+### Commands — sync and management
 
 - `/specs-pull` — Pull latest spec files from the service
 - `/specs-login` — Authenticate with the spec service
 - `/specs-status` — Show sync status of local spec files
+- `/specs-set-status` — Change feature or document status
+- `/backlog` — List backlog items
+- `/backlog-add` — Add a backlog item
+- `/bugs` — List bugs
+- `/bug` — Report a bug
+
+## Important: Always pull before reading specs
+
+**Before reading or working with spec files, always run `/specs-pull` first** to ensure you have the latest versions. The SessionStart hook handles this for new sessions, but mid-session you must pull manually.
+
+Do not assume local spec files are current — pull first, then read.
 
 ## How it works
 
