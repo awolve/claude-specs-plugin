@@ -177,6 +177,18 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
                     local_content = f.read()
                 local_hash = file_content_hash(local_content)
                 if local_hash == remote_hash:
+                    # Content matches — update frontmatter if version/status drifted
+                    local_meta, local_body = parse_frontmatter(local_content)
+                    if local_meta.get("spec_version") != version or \
+                       local_meta.get("feature_status", "") != feature_status or \
+                       local_meta.get("doc_status", "") != doc_status:
+                        local_meta["spec_version"] = version
+                        if feature_status:
+                            local_meta["feature_status"] = feature_status
+                        if doc_status:
+                            local_meta["doc_status"] = doc_status
+                        with open(local_path, "w", encoding="utf-8") as fw:
+                            fw.write(render_frontmatter(local_meta, local_body))
                     skipped += 1
                     continue
             except (IOError, OSError):
