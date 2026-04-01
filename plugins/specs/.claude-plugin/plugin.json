@@ -1,6 +1,6 @@
 {
   "name": "specs",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Spec-driven development — create, sync, and manage spec documents with the Awolve Spec Service",
   "author": {
     "name": "Awolve",

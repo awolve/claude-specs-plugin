@@ -1,6 +1,6 @@
 {
   "name": "awolve-open-claude-plugins",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Awolve Spec Service plugin — sync spec files, comment, and collaborate",
   "owner": {
     "name": "Awolve",
