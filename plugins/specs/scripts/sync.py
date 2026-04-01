@@ -913,7 +913,7 @@ def create_document(project_id, feature_name, filename):
     payload = {"filename": filename}
     try:
         status_code, body = api_request(
-            f"{service_url}/api/features/{encoded_feature}/documents",
+            f"{service_url}/api/features/lookup/documents?id={encoded_feature}",
             method="POST",
             headers={**headers, "Content-Type": "application/json"},
             data=payload,
