@@ -80,12 +80,21 @@ Create `${SPEC_DIR}/{NNN}-{feature-name}/design.md`:
 
 Adapt the template to the feature — not every section applies to every feature. Skip sections that don't add value. Add sections that are needed but not in the template.
 
-### 5. Bootstrap and push
+### 5. Register and push
 
-If this is a new feature (no spec_doc_id frontmatter), bootstrap it:
+If this is a new feature (folder didn't exist before), register it in the spec service:
 
 ```bash
-python3 scripts/bootstrap-specs.py <project-id> <specs-path>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> design.md
+```
+
+Then re-read the file to pick up the sync frontmatter that was added. The PostToolUse hook will handle pushes from here.
+
+If the feature already exists but the document is new (no spec_doc_id frontmatter), register just the document:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> design.md
 ```
 
 If the file already has sync frontmatter, the PostToolUse hook handles the push automatically.

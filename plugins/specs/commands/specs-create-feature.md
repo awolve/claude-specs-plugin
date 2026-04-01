@@ -1,0 +1,27 @@
+---
+name: specs-create-feature
+description: Create a new feature in a project
+argument-hint: [project-id] [feature-name]
+---
+
+# /specs-create-feature
+
+Create a new feature in a project, registered in both the local filesystem and the spec service.
+
+## Instructions
+
+If the user didn't provide arguments, ask:
+1. Which project? (check `.claude/specs.md` or `.claude/specs.local.md` for configured projects)
+2. What's the feature name? (kebab-case, e.g. `user-notifications`)
+
+The script auto-assigns the next spec number (e.g. `004-user-notifications`).
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name> [--status STATUS]
+```
+
+Default status is `specifying`. Use `--status idea` for placeholder features.
+
+After creation, suggest next steps:
+- `/spec requirements` to write requirements
+- `/spec design` to write the design doc

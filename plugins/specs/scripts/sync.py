@@ -7,6 +7,20 @@ Usage:
     sync.py push <file_path>      — Push a single spec file
     sync.py status                — Show sync status of local spec files
     sync.py set-status <id> <status> — Set feature or document status
+    sync.py create-feature <project-id> <name> [--status STATUS]
+                                  — Create a new feature in a project
+    sync.py create-doc <project-id> <feature-name> <filename>
+                                  — Add a document to an existing feature
+    sync.py rename-feature <project-id> <old-name> <new-name>
+                                  — Rename a feature folder and update the service
+    sync.py rename-doc <file-path> <new-filename>
+                                  — Rename a document file and update the service
+    sync.py delete-doc <file-path>
+                                  — Delete a document from filesystem and service
+    sync.py delete-feature <project-id> <feature-name>
+                                  — Delete a feature and all its documents
+    sync.py list-features <project-id>
+                                  — List all features in a project
     sync.py bugs <project-id>     — List bugs for a project
     sync.py bug <project-id> <title> <description> [severity] — Create a bug
     sync.py post-tool-use         — Hook: read tool use JSON from stdin, push if spec
@@ -771,6 +785,432 @@ def create_bug(project_id, title, description, severity="medium", image_paths=No
 
 
 # ---------------------------------------------------------------------------
+# Feature management
+# ---------------------------------------------------------------------------
+
+def _next_spec_number(specs_path):
+    """Determine the next spec number by scanning existing folders."""
+    if not os.path.isdir(specs_path):
+        return 1
+    max_num = 0
+    for entry in os.listdir(specs_path):
+        m = re.match(r"^(\d+)-", entry)
+        if m:
+            max_num = max(max_num, int(m.group(1)))
+    return max_num + 1
+
+
+def _find_project(cfg, project_id):
+    """Find a project in config by ID. Returns project dict or exits."""
+    for proj in cfg["projects"]:
+        if proj["id"] == project_id:
+            return proj
+    print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+    sys.exit(1)
+
+
+def create_feature(project_id, name, initial_status="specifying"):
+    """Create a new feature in a project."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    proj = _find_project(cfg, project_id)
+    specs_path = proj["path"]
+    service_url = cfg["service_url"]
+
+    # Determine folder name
+    if re.match(r"^\d+-", name):
+        folder_name = name
+    else:
+        num = _next_spec_number(specs_path)
+        folder_name = f"{num:03d}-{name}"
+
+    feature_id = f"{project_id}/{folder_name}"
+
+    # Register in service
+    payload = {
+        "id": feature_id,
+        "project": project_id,
+        "name": folder_name,
+        "status": initial_status,
+    }
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to create feature — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 409:
+        print(f"specs: feature '{feature_id}' already exists", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        print(f"specs: failed to create feature (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    # Create local folder
+    local_dir = os.path.join(specs_path, folder_name)
+    os.makedirs(local_dir, exist_ok=True)
+
+    print(f"specs: created feature '{feature_id}'")
+    print(f"  path: {local_dir}")
+    print(f"  status: {initial_status}")
+    print(f"  portal: {service_url}/portal/{project_id}/specs/{folder_name}")
+
+
+def create_document(project_id, feature_name, filename):
+    """Add a document to an existing feature."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    proj = _find_project(cfg, project_id)
+    specs_path = proj["path"]
+    service_url = cfg["service_url"]
+
+    feature_id = f"{project_id}/{feature_name}"
+
+    if not filename.endswith(".md"):
+        filename = f"{filename}.md"
+
+    local_dir = os.path.join(specs_path, feature_name)
+    if not os.path.isdir(local_dir):
+        print(f"specs: feature folder not found: {local_dir}", file=sys.stderr)
+        print(f"  run: sync.py create-feature {project_id} {feature_name}", file=sys.stderr)
+        sys.exit(1)
+
+    local_path = os.path.join(local_dir, filename)
+    if os.path.isfile(local_path):
+        with open(local_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        meta, _ = parse_frontmatter(content)
+        if meta.get("spec_doc_id"):
+            print(f"specs: {filename} already tracked (doc_id: {meta['spec_doc_id']})", file=sys.stderr)
+            return
+
+    # Register document in service
+    import urllib.parse
+    encoded_feature = urllib.parse.quote(feature_id, safe="")
+
+    payload = {"filename": filename}
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features/{encoded_feature}/documents",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to create document — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to create document (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    resp = json.loads(body)
+    doc_id = resp.get("id")
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = {
+        "spec_doc_id": doc_id,
+        "spec_version": 1,
+        "last_synced": now,
+    }
+
+    if os.path.isfile(local_path):
+        with open(local_path, "r", encoding="utf-8") as f:
+            existing_body = f.read()
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(render_frontmatter(meta, existing_body))
+    else:
+        title = filename.replace(".md", "").replace("-", " ").title()
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(render_frontmatter(meta, f"\n# {title}\n"))
+
+    print(f"specs: created document '{filename}' in '{feature_id}'")
+    print(f"  path: {local_path}")
+    print(f"  doc_id: {doc_id}")
+
+
+def rename_feature(project_id, old_name, new_name):
+    """Rename a feature folder and update the service."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    proj = _find_project(cfg, project_id)
+    specs_path = proj["path"]
+    service_url = cfg["service_url"]
+
+    # Preserve number prefix
+    old_match = re.match(r"^(\d+)-", old_name)
+    new_match = re.match(r"^(\d+)-", new_name)
+    if old_match and not new_match:
+        new_name = f"{old_match.group(1)}-{new_name}"
+
+    old_feature_id = f"{project_id}/{old_name}"
+    new_feature_id = f"{project_id}/{new_name}"
+
+    old_dir = os.path.join(specs_path, old_name)
+    new_dir = os.path.join(specs_path, new_name)
+
+    if not os.path.isdir(old_dir):
+        print(f"specs: feature folder not found: {old_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    if os.path.exists(new_dir):
+        print(f"specs: target folder already exists: {new_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Update service
+    import urllib.parse
+    encoded_id = urllib.parse.quote(old_feature_id, safe="")
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"name": new_name},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to rename feature — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 409:
+        print(f"specs: feature '{new_feature_id}' already exists in service", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        print(f"specs: failed to rename feature (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    os.rename(old_dir, new_dir)
+
+    print(f"specs: renamed '{old_feature_id}' → '{new_feature_id}'")
+    print(f"  path: {new_dir}")
+
+
+def rename_document(file_path, new_filename):
+    """Rename a document file and update the service."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    abs_path = os.path.abspath(file_path)
+
+    if not os.path.isfile(abs_path):
+        print(f"specs: file not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if not new_filename.endswith(".md"):
+        new_filename = f"{new_filename}.md"
+
+    with open(abs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    meta, body = parse_frontmatter(content)
+    doc_id = meta.get("spec_doc_id")
+
+    if not doc_id:
+        print(f"specs: {file_path} has no spec_doc_id — not tracked by service", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        status_code, resp_body = api_request(
+            f"{service_url}/api/documents/{doc_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"filename": new_filename},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to rename document — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 409:
+        print(f"specs: document '{new_filename}' already exists in this feature", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        print(f"specs: failed to rename document (HTTP {status_code}): {resp_body}", file=sys.stderr)
+        sys.exit(1)
+
+    new_path = os.path.join(os.path.dirname(abs_path), new_filename)
+    os.rename(abs_path, new_path)
+
+    print(f"specs: renamed '{os.path.basename(abs_path)}' → '{new_filename}'")
+    print(f"  path: {new_path}")
+
+
+def delete_document(file_path):
+    """Delete a document from filesystem and service."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    abs_path = os.path.abspath(file_path)
+
+    if not os.path.isfile(abs_path):
+        print(f"specs: file not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(abs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    meta, _ = parse_frontmatter(content)
+    doc_id = meta.get("spec_doc_id")
+
+    if not doc_id:
+        print(f"specs: {file_path} has no spec_doc_id — not tracked by service", file=sys.stderr)
+        os.remove(abs_path)
+        print(f"specs: deleted local file: {file_path}")
+        return
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/documents/{doc_id}",
+            method="DELETE",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to delete from service — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 204, 404):
+        print(f"specs: failed to delete document (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    os.remove(abs_path)
+    print(f"specs: deleted '{os.path.basename(abs_path)}' (doc_id: {doc_id})")
+
+
+def delete_feature(project_id, feature_name):
+    """Delete a feature and all its documents."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    proj = _find_project(cfg, project_id)
+    specs_path = proj["path"]
+    service_url = cfg["service_url"]
+
+    feature_id = f"{project_id}/{feature_name}"
+    local_dir = os.path.join(specs_path, feature_name)
+
+    import urllib.parse
+    encoded_id = urllib.parse.quote(feature_id, safe="")
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            method="DELETE",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to delete from service — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 204, 404):
+        print(f"specs: failed to delete feature (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    if os.path.isdir(local_dir):
+        import shutil
+        shutil.rmtree(local_dir)
+
+    print(f"specs: deleted feature '{feature_id}'")
+
+
+def list_features(project_id):
+    """List all features in a project."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features?project={project_id}",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to list features — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to list features (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    features = json.loads(body)
+    if not features:
+        print(f"specs: no features in '{project_id}'")
+        return
+
+    print(f"specs: {len(features)} feature(s) in '{project_id}'")
+    print()
+    for f in features:
+        name = f.get("name", "?")
+        feat_status = f.get("status", "?")
+        doc_count = len(f.get("documents", []))
+        status_marker = {
+            "idea": ".",
+            "specifying": "*",
+            "in_progress": ">",
+            "completed": "+",
+            "archived": "x",
+        }.get(feat_status, "?")
+        print(f"  [{status_marker}] {name:40s}  {feat_status:15s}  {doc_count} doc(s)")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -835,6 +1275,45 @@ def main():
         desc = args[3] if len(args) > 3 else None
         pri = args[4] if len(args) > 4 else "medium"
         create_backlog_item(args[1], args[2], desc, pri)
+    elif cmd == "create-feature":
+        if len(args) < 3:
+            print("Usage: sync.py create-feature <project-id> <name> [--status STATUS]", file=sys.stderr)
+            sys.exit(1)
+        status_val = "specifying"
+        for i, a in enumerate(args):
+            if a == "--status" and i + 1 < len(args):
+                status_val = args[i + 1]
+        create_feature(args[1], args[2], initial_status=status_val)
+    elif cmd == "create-doc":
+        if len(args) < 4:
+            print("Usage: sync.py create-doc <project-id> <feature-name> <filename>", file=sys.stderr)
+            sys.exit(1)
+        create_document(args[1], args[2], args[3])
+    elif cmd == "rename-feature":
+        if len(args) < 4:
+            print("Usage: sync.py rename-feature <project-id> <old-name> <new-name>", file=sys.stderr)
+            sys.exit(1)
+        rename_feature(args[1], args[2], args[3])
+    elif cmd == "rename-doc":
+        if len(args) < 3:
+            print("Usage: sync.py rename-doc <file-path> <new-filename>", file=sys.stderr)
+            sys.exit(1)
+        rename_document(args[1], args[2])
+    elif cmd == "delete-doc":
+        if len(args) < 2:
+            print("Usage: sync.py delete-doc <file-path>", file=sys.stderr)
+            sys.exit(1)
+        delete_document(args[1])
+    elif cmd == "delete-feature":
+        if len(args) < 3:
+            print("Usage: sync.py delete-feature <project-id> <feature-name>", file=sys.stderr)
+            sys.exit(1)
+        delete_feature(args[1], args[2])
+    elif cmd == "list-features":
+        if len(args) < 2:
+            print("Usage: sync.py list-features <project-id>", file=sys.stderr)
+            sys.exit(1)
+        list_features(args[1])
     elif cmd == "post-tool-use":
         handle_post_tool_use()
     else:

@@ -46,6 +46,13 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/specs-login` — Authenticate with the spec service
 - `/specs-status` — Show sync status of local spec files
 - `/specs-set-status` — Change feature or document status
+- `/specs-create-feature` — Create a new feature in a project
+- `/specs-create-doc` — Add a document to an existing feature
+- `/specs-rename-feature` — Rename a feature
+- `/specs-rename-doc` — Rename a document
+- `/specs-delete-doc` — Delete a document
+- `/specs-delete-feature` — Delete a feature and all its documents
+- `/specs-list-features` — List all features in a project
 - `/backlog` — List backlog items
 - `/backlog-add` — Add a backlog item
 - `/bugs` — List bugs

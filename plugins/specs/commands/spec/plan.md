@@ -60,13 +60,15 @@ Create `${SPEC_DIR}/{NNN}-{feature-name}/plan.md`:
 
 Adapt the template — if dependencies aren't relevant, skip that section. If phases don't make sense for this feature, use a flat task list.
 
-### 4. Bootstrap and push
+### 4. Register and push
 
-If the file is new (no spec_doc_id frontmatter), bootstrap it:
+If the document is new (no spec_doc_id frontmatter), register it:
 
 ```bash
-python3 scripts/bootstrap-specs.py <project-id> <specs-path>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> plan.md
 ```
+
+Then re-read the file to pick up the sync frontmatter. The PostToolUse hook handles pushes from here.
 
 If the file already has sync frontmatter, the PostToolUse hook handles the push automatically.
 

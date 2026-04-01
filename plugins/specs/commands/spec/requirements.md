@@ -76,12 +76,21 @@ Create `${SPEC_DIR}/{NNN}-{feature-name}/requirements.md`:
 - [What this feature explicitly does NOT include]
 ```
 
-### 4. Bootstrap and push
+### 4. Register and push
 
-If this is a new feature (no spec_doc_id frontmatter), bootstrap it:
+If this is a new feature (folder didn't exist before), register it in the spec service:
 
 ```bash
-python3 scripts/bootstrap-specs.py <project-id> <specs-path>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> requirements.md
+```
+
+Then re-read the file to pick up the sync frontmatter that was added. The PostToolUse hook will handle pushes from here.
+
+If the feature already exists but the document is new, register just the document:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> requirements.md
 ```
 
 If the file already has sync frontmatter, the PostToolUse hook handles the push automatically.
