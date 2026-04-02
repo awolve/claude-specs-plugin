@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.8 — 2026-04-02
+- Fix: API key login supports `SPECS_API_KEY` env var — works in Claude Code `!` commands where getpass fails
+- Falls back gracefully with instructions if interactive input unavailable
+
 ## 0.10.7 — 2026-04-02
 - Fix: `/specs-login` removes Bash from allowed-tools so it must ask auth method first
 

@@ -23,9 +23,9 @@ Then, based on their answer:
 
 **If Azure CLI:** run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-azure` and then `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status` to verify. If it fails, tell the user to run `! az login` first, then retry.
 
-**If API key:** tell the user to run this themselves (the `!` prefix keeps the key private):
+**If API key:** tell the user to run this themselves (the `!` prefix keeps the key private — replace `sk_...` with their actual key):
 
-> `! python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey`
+> `! SPECS_API_KEY='sk_...' python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey`
 >
 > If you don't have an API key yet, generate one at https://specs.awolve.ai/portal/settings
 

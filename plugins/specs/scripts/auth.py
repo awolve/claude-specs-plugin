@@ -191,11 +191,23 @@ def login_apikey(api_key=None, email=None, service_url=None):
     If api_key is None, prompts securely via getpass (no echo).
     """
     if not api_key:
-        import getpass
-        api_key = getpass.getpass("API key: ").strip()
-        if not api_key:
-            print("specs: no key provided — aborting", file=sys.stderr)
+        # Try environment variable first
+        api_key = os.environ.get("SPECS_API_KEY", "").strip()
+
+    if not api_key:
+        # Try getpass (works in real terminals), fall back to stdin
+        try:
+            import getpass
+            api_key = getpass.getpass("API key: ").strip()
+        except (EOFError, OSError):
+            print("specs: cannot read key interactively", file=sys.stderr)
+            print("specs: set SPECS_API_KEY env var instead:", file=sys.stderr)
+            print("  export SPECS_API_KEY='sk_...' && python3 ... login-apikey", file=sys.stderr)
             return False
+
+    if not api_key:
+        print("specs: no key provided — aborting", file=sys.stderr)
+        return False
 
     url = service_url or _read_auth().get("service_url", "https://specs.awolve.ai")
 
