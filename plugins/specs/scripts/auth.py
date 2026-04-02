@@ -185,28 +185,38 @@ def login_azure(service_url=None):
     return True
 
 
-def login_apikey(api_key=None, email=None, service_url=None):
+def login_apikey(api_key=None, email=None, service_url=None, from_clipboard=False):
     """Set up API key auth method.
 
-    If api_key is None, prompts securely via getpass (no echo).
+    Resolution order: api_key arg > SPECS_API_KEY env > clipboard (if --from-clipboard) > getpass.
     """
     if not api_key:
-        # Try environment variable first
         api_key = os.environ.get("SPECS_API_KEY", "").strip()
 
+    if not api_key and from_clipboard:
+        try:
+            result = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                api_key = result.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            print("specs: clipboard not available (pbpaste not found)", file=sys.stderr)
+            return False
+
     if not api_key:
-        # Try getpass (works in real terminals), fall back to stdin
         try:
             import getpass
             api_key = getpass.getpass("API key: ").strip()
         except (EOFError, OSError):
             print("specs: cannot read key interactively", file=sys.stderr)
-            print("specs: set SPECS_API_KEY env var instead:", file=sys.stderr)
-            print("  export SPECS_API_KEY='sk_...' && python3 ... login-apikey", file=sys.stderr)
+            print("specs: copy key to clipboard and retry with --from-clipboard", file=sys.stderr)
             return False
 
     if not api_key:
         print("specs: no key provided — aborting", file=sys.stderr)
+        return False
+
+    if not api_key.startswith("sk_"):
+        print("specs: invalid key — must start with sk_", file=sys.stderr)
         return False
 
     url = service_url or _read_auth().get("service_url", "https://specs.awolve.ai")
@@ -221,6 +231,14 @@ def login_apikey(api_key=None, email=None, service_url=None):
     data["api_key"] = api_key
     data["service_url"] = url
     _write_auth(data)
+
+    # Clear clipboard if we read from it
+    if from_clipboard:
+        try:
+            subprocess.run(["pbcopy"], input=b"", timeout=5)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
     print("specs: logged in (API key)")
     return True
 
@@ -270,12 +288,13 @@ if __name__ == "__main__":
         ok = login_azure()
         sys.exit(0 if ok else 1)
     elif cmd == "login-apikey":
-        # Secure: prompts for key via getpass (no echo, never in args)
+        # Secure: reads key from clipboard, env var, or getpass — never in args
         url = None
         for i, a in enumerate(sys.argv):
             if a == "--service-url" and i + 1 < len(sys.argv):
                 url = sys.argv[i + 1]
-        ok = login_apikey(service_url=url)
+        clipboard = "--from-clipboard" in sys.argv
+        ok = login_apikey(service_url=url, from_clipboard=clipboard)
         sys.exit(0 if ok else 1)
     elif cmd == "login":
         if len(sys.argv) < 3:

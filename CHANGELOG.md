@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.9 — 2026-04-02
+- UX: API key login reads from clipboard (`--from-clipboard`) — copy key, run command, done
+- Validates key starts with `sk_` before calling service
+- Clears clipboard after successful login
+
 ## 0.10.8 — 2026-04-02
 - Fix: API key login supports `SPECS_API_KEY` env var — works in Claude Code `!` commands where getpass fails
 - Falls back gracefully with instructions if interactive input unavailable
