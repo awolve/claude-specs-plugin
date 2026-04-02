@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.7 — 2026-04-02
+- Fix: `/specs-login` removes Bash from allowed-tools so it must ask auth method first
+
 ## 0.10.6 — 2026-04-02
 - Fix: `/specs-login` now forces auth method question — cannot be skipped or assumed
 - Docs: added update command to README and SKILL.md
