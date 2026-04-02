@@ -1,6 +1,7 @@
 ---
 name: specs-login
 description: Authenticate with the Awolve Spec Service
+allowed-tools: [Bash, AskUserQuestion]
 ---
 
 # /specs-login
@@ -9,9 +10,18 @@ Authenticate with the Awolve Spec Service so specs can be synced.
 
 ## Instructions
 
-### Default: Azure CLI (for Awolve users)
+### Step 1: Ask the user which auth method they want
 
-Just run:
+Use AskUserQuestion:
+
+> How do you want to authenticate with the spec service?
+>
+> 1. **Azure CLI** — for Awolve team members (uses `az login`)
+> 2. **API key** — for external collaborators (key from the portal)
+
+### Step 2a: Azure CLI
+
+Run:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-azure
@@ -19,21 +29,23 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-azure
 
 This auto-detects Azure CLI, fetches a token, and configures auto-refresh. Tokens refresh automatically on each API call — no expiry.
 
-If it fails, tell the user to run `az login` first (or `! az login` in Claude Code).
+If it fails, tell the user to run `! az login` first, then retry.
 
-### Alternative: API key (for external users)
+### Step 2b: API key
 
-If the user doesn't have Azure CLI, they need an API key. They can generate one at https://specs.awolve.ai/portal/settings (log in first, then click "Generate API key").
+**IMPORTANT:** Never ask the user to paste the API key into the chat. Tell them to run the login command themselves — the key is entered securely via a hidden prompt (no echo).
 
-**IMPORTANT:** Never ask the user to paste the API key into the chat. Instead, tell them to run the login command themselves — the key is entered securely via a hidden prompt (no echo):
+Tell the user:
 
-```
-! python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey
-```
+> Run this in the prompt (the `!` prefix runs it in your terminal so the key stays private):
+>
+> `! python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey`
+>
+> If you don't have an API key yet, generate one at https://specs.awolve.ai/portal/settings
 
-The `!` prefix runs it in the user's terminal. The script prompts for the key (hidden) and email, verifies the key works, then saves it.
+Then wait for them to confirm it worked before proceeding.
 
-### Verify
+### Step 3: Verify
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status
