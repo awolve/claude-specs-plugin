@@ -10,14 +10,18 @@ Authenticate with the Awolve Spec Service so specs can be synced.
 
 ## Instructions
 
+**MANDATORY first step — do NOT skip this.** You MUST ask before running any commands. Do NOT assume Azure CLI. Do NOT run any bash commands until the user answers.
+
 ### Step 1: Ask the user which auth method they want
 
-Use AskUserQuestion:
+Use AskUserQuestion to ask:
 
 > How do you want to authenticate with the spec service?
 >
 > 1. **Azure CLI** — for Awolve team members (uses `az login`)
 > 2. **API key** — for external collaborators (key from the portal)
+
+Wait for the user's answer. Do not proceed until they respond.
 
 ### Step 2a: Azure CLI
 
