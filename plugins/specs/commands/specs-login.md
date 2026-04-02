@@ -1,7 +1,7 @@
 ---
 name: specs-login
 description: Authenticate with the Awolve Spec Service
-allowed-tools: [Bash, AskUserQuestion]
+allowed-tools: [AskUserQuestion]
 ---
 
 # /specs-login
@@ -10,9 +10,7 @@ Authenticate with the Awolve Spec Service so specs can be synced.
 
 ## Instructions
 
-**MANDATORY first step — do NOT skip this.** You MUST ask before running any commands. Do NOT assume Azure CLI. Do NOT run any bash commands until the user answers.
-
-### Step 1: Ask the user which auth method they want
+Your ONLY job is to ask the user which auth method they want. Do NOT run any commands.
 
 Use AskUserQuestion to ask:
 
@@ -21,38 +19,14 @@ Use AskUserQuestion to ask:
 > 1. **Azure CLI** — for Awolve team members (uses `az login`)
 > 2. **API key** — for external collaborators (key from the portal)
 
-Wait for the user's answer. Do not proceed until they respond.
+Then, based on their answer:
 
-### Step 2a: Azure CLI
+**If Azure CLI:** run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-azure` and then `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status` to verify. If it fails, tell the user to run `! az login` first, then retry.
 
-Run:
+**If API key:** tell the user to run this themselves (the `!` prefix keeps the key private):
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-azure
-```
-
-This auto-detects Azure CLI, fetches a token, and configures auto-refresh. Tokens refresh automatically on each API call — no expiry.
-
-If it fails, tell the user to run `! az login` first, then retry.
-
-### Step 2b: API key
-
-**IMPORTANT:** Never ask the user to paste the API key into the chat. Tell them to run the login command themselves — the key is entered securely via a hidden prompt (no echo).
-
-Tell the user:
-
-> Run this in the prompt (the `!` prefix runs it in your terminal so the key stays private):
->
 > `! python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey`
 >
 > If you don't have an API key yet, generate one at https://specs.awolve.ai/portal/settings
 
-Then wait for them to confirm it worked before proceeding.
-
-### Step 3: Verify
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status
-```
-
-Then suggest `/specs-pull` to sync specs.
+Then verify with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status` and suggest `/specs-pull`.
