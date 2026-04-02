@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.6 — 2026-04-02
+- Fix: `/specs-login` now forces auth method question — cannot be skipped or assumed
+- Docs: added update command to README and SKILL.md
+- Docs: updated README with full command list and current setup flow
+
 ## 0.10.5 — 2026-04-02
 - UX: `/specs-login` now asks user to choose auth method (Azure CLI or API key) before proceeding
 
