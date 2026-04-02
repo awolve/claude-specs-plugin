@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.5 — 2026-04-02
+- UX: `/specs-login` now asks user to choose auth method (Azure CLI or API key) before proceeding
+
 ## 0.10.4 — 2026-04-02
 - Security: API key login now uses `getpass` (hidden prompt) — key never appears in args or conversation
 - Login verifies key against service before saving
