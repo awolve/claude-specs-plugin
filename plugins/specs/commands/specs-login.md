@@ -23,11 +23,15 @@ If it fails, tell the user to run `az login` first (or `! az login` in Claude Co
 
 ### Alternative: API key (for external users)
 
-If the user doesn't have Azure CLI, they need an API key. They can generate one at https://specs.awolve.ai/portal/settings (log in first, then click "Generate API key"). Ask them for it, then:
+If the user doesn't have Azure CLI, they need an API key. They can generate one at https://specs.awolve.ai/portal/settings (log in first, then click "Generate API key").
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login "<api-key>" "<email>" "https://specs.awolve.ai"
+**IMPORTANT:** Never ask the user to paste the API key into the chat. Instead, tell them to run the login command themselves — the key is entered securely via a hidden prompt (no echo):
+
 ```
+! python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py login-apikey
+```
+
+The `!` prefix runs it in the user's terminal. The script prompts for the key (hidden) and email, verifies the key works, then saves it.
 
 ### Verify
 

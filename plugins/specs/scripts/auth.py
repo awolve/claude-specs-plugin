@@ -185,19 +185,31 @@ def login_azure(service_url=None):
     return True
 
 
-def login_apikey(api_key, email=None, service_url=None):
-    """Set up API key auth method."""
+def login_apikey(api_key=None, email=None, service_url=None):
+    """Set up API key auth method.
+
+    If api_key is None, prompts securely via getpass (no echo).
+    """
+    if not api_key:
+        import getpass
+        api_key = getpass.getpass("API key: ").strip()
+        if not api_key:
+            print("specs: no key provided — aborting", file=sys.stderr)
+            return False
+
+    url = service_url or _read_auth().get("service_url", "https://specs.awolve.ai")
+
+    # Verify the key works before saving
+    if not _verify_token(api_key, url):
+        print(f"specs: API key rejected by {url} — check the key and try again", file=sys.stderr)
+        return False
+
     data = _read_auth()
     data["method"] = "api-key"
     data["api_key"] = api_key
-    if email:
-        data["email"] = email
-    if service_url:
-        data["service_url"] = service_url
-    elif "service_url" not in data:
-        data["service_url"] = "https://specs.awolve.ai"
+    data["service_url"] = url
     _write_auth(data)
-    print(f"specs: logged in{' as ' + email if email else ''} (API key)")
+    print("specs: logged in (API key)")
     return True
 
 
@@ -244,6 +256,14 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "login-azure":
         ok = login_azure()
+        sys.exit(0 if ok else 1)
+    elif cmd == "login-apikey":
+        # Secure: prompts for key via getpass (no echo, never in args)
+        url = None
+        for i, a in enumerate(sys.argv):
+            if a == "--service-url" and i + 1 < len(sys.argv):
+                url = sys.argv[i + 1]
+        ok = login_apikey(service_url=url)
         sys.exit(0 if ok else 1)
     elif cmd == "login":
         if len(sys.argv) < 3:

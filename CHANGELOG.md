@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.4 — 2026-04-02
+- Security: API key login now uses `getpass` (hidden prompt) — key never appears in args or conversation
+- Login verifies key against service before saving
+- Command instructs user to run via `!` prefix so key stays in their terminal
+
 ## 0.10.3 — 2026-04-02
 - Fix: create-feature now sends required `title` and `contextPath` to API (was failing with 400)
 - Fix: create-doc now sends required `content` to API (was failing with 400)
