@@ -18,17 +18,23 @@ Run these as slash commands inside Claude Code:
 /reload-plugins
 ```
 
+## Update
+
+```
+/plugin marketplace update awolve-open-claude-plugins
+```
+
 ## Setup
 
-1. **Generate API key** — go to [specs.awolve.ai/portal/settings](https://specs.awolve.ai/portal/settings) and generate a key
-2. **Login** — run `/specs-login` in Claude Code and paste your API key
-3. **Configure project** — create `.claude/specs.local.md` in your project root:
+1. **Login** — run `/specs-login` in Claude Code (Azure CLI or API key)
+2. **Configure project** — create `.claude/specs.md` (shared) or `.claude/specs.local.md` (personal override):
 
 ```yaml
 ---
-project: my-project
-specs_path: ./specs
 service_url: https://specs.awolve.ai
+projects:
+  - id: my-project
+    path: ./specs
 ---
 ```
 
@@ -38,12 +44,29 @@ service_url: https://specs.awolve.ai
 
 | Command | What |
 |---------|------|
-| `/specs-pull` | Manually pull latest spec files |
-| `/specs-login` | Authenticate with the spec service |
-| `/specs-status` | Show sync status of local spec files |
+| `/specs-pull` | Pull latest spec files |
+| `/specs-login` | Authenticate (Azure CLI or API key) |
+| `/specs-status` | Show sync status |
+| `/specs-create-feature` | Create a new feature |
+| `/specs-create-doc` | Add a document to a feature |
+| `/specs-list-features` | List features in a project |
+| `/specs-set-status` | Change feature or document status |
+| `/specs-rename-feature` | Rename a feature |
+| `/specs-rename-doc` | Rename a document |
+| `/specs-delete-feature` | Delete a feature and all documents |
+| `/specs-delete-doc` | Delete a document |
+| `/spec requirements` | Write requirements.md for a feature |
+| `/spec design` | Write design.md for a feature |
+| `/spec infra` | Enrich design.md with infrastructure details |
+| `/spec plan` | Write plan.md — implementation breakdown |
+| `/retro-spec` | Document work after the fact |
+| `/bugs` | List open bugs |
+| `/bug` | Report a bug |
+| `/backlog` | List backlog items |
+| `/backlog-add` | Add a backlog item |
 
 ## How it works
 
-- **SessionStart hook** — pulls latest specs from the service, writes them to `specs_path` with version metadata in YAML frontmatter
+- **SessionStart hook** — pulls latest specs from the service, writes them to configured paths with version metadata in YAML frontmatter
 - **PostToolUse hook** — detects edits to spec files, pushes changes as new versions with optimistic locking (409 on conflict)
 - **No dependencies** — pure Python 3 stdlib, works everywhere

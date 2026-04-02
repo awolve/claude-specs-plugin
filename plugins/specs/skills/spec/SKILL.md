@@ -126,3 +126,9 @@ When a user needs to set up specs config:
 5. **Never create both** unless the user explicitly needs a personal override
 
 Authentication is stored in `~/.claude-specs/auth.json` (per-machine, created by `/specs-login`).
+
+## Updating the plugin
+
+```
+/plugin marketplace update awolve-open-claude-plugins
+```
