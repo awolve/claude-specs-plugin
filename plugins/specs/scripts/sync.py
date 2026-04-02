@@ -48,11 +48,21 @@ import config
 # Frontmatter helpers
 # ---------------------------------------------------------------------------
 
-FM_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# Tolerant: optional BOM, \r\n or \n, optional trailing whitespace on delimiter lines
+FM_PATTERN = re.compile(
+    r"^\ufeff?"           # optional BOM
+    r"---[ \t]*\r?\n"     # opening ---
+    r"(.*?)\r?\n"         # frontmatter body (lazy)
+    r"---[ \t]*\r?\n?",   # closing ---
+    re.DOTALL,
+)
 
 
 def parse_frontmatter(content):
-    """Parse YAML frontmatter. Returns (metadata_dict, body_without_frontmatter)."""
+    """Parse YAML frontmatter. Returns (metadata_dict, body_without_frontmatter).
+
+    Tolerates BOM, \\r\\n line endings, and trailing whitespace on delimiters.
+    """
     m = FM_PATTERN.match(content)
     if not m:
         return {}, content
@@ -60,7 +70,10 @@ def parse_frontmatter(content):
     body = content[m.end():]
     meta = {}
     for line in fm_text.strip().splitlines():
-        match = re.match(r"^([\w_]+)\s*:\s*(.+)$", line.strip())
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r"^([\w_]+)\s*:\s*(.+)$", line)
         if match:
             key = match.group(1)
             val = match.group(2).strip().strip("\"'")
@@ -73,13 +86,30 @@ def parse_frontmatter(content):
 
 
 def render_frontmatter(meta, body):
-    """Render metadata dict and body back into markdown with frontmatter."""
+    """Render metadata dict and body back into markdown with frontmatter.
+
+    Normalises the join: body always starts with exactly one blank line.
+    """
     lines = ["---"]
     for k, v in meta.items():
         lines.append(f"{k}: {v}")
     lines.append("---")
+    # Ensure exactly one blank line between frontmatter and body
+    body = body.lstrip("\r\n")
     lines.append("")
-    return "\n".join(lines) + body
+    return "\n".join(lines) + "\n" + body
+
+
+def strip_frontmatter(content):
+    """Remove any leading frontmatter block(s) from content.
+
+    Handles the case where frontmatter leaked into body (double frontmatter).
+    """
+    while True:
+        m = FM_PATTERN.match(content)
+        if not m:
+            return content
+        content = content[m.end():]
 
 
 def file_content_hash(content):
@@ -317,6 +347,9 @@ def push(file_path):
     if base_version is None:
         print(f"specs: {file_path} has no spec_version — skipping", file=sys.stderr)
         return
+
+    # Safety: strip any leaked frontmatter from body (e.g. double frontmatter)
+    body = strip_frontmatter(body)
 
     # Push
     push_url = f"{service_url}/api/sync/documents/{doc_id}/content?base_version={base_version}"
@@ -721,11 +754,13 @@ def create_backlog_item(project_id, title, description=None, priority="medium"):
 
     service_url = cfg["service_url"]
     url = f"{service_url}/api/portal/projects/{project_id}/backlog"
-    payload = json.dumps({"title": title, "description": description, "priority": priority})
-    headers["Content-Type"] = "application/json"
 
     try:
-        status_code, body = api_request(url, method="POST", headers=headers, data=payload)
+        status_code, body = api_request(
+            url, method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"title": title, "description": description, "priority": priority},
+        )
     except ConnectionError as e:
         print(f"specs: failed to create backlog item — {e}", file=sys.stderr)
         sys.exit(1)
@@ -846,12 +881,20 @@ def create_feature(project_id, name, initial_status="specifying"):
 
     feature_id = f"{project_id}/{folder_name}"
 
+    # Create local folder
+    local_dir = os.path.join(specs_path, folder_name)
+    os.makedirs(local_dir, exist_ok=True)
+    context_path = os.path.relpath(local_dir, os.getcwd())
+
+    # Humanize folder name for title: "003-user-notifications" -> "User Notifications"
+    title = re.sub(r"^\d+-", "", folder_name).replace("-", " ").title()
+
     # Register in service
     payload = {
-        "id": feature_id,
         "project": project_id,
         "name": folder_name,
-        "status": initial_status,
+        "title": title,
+        "contextPath": context_path,
     }
 
     try:
@@ -872,9 +915,16 @@ def create_feature(project_id, name, initial_status="specifying"):
         print(f"specs: failed to create feature (HTTP {status_code}): {body}", file=sys.stderr)
         sys.exit(1)
 
-    # Create local folder
-    local_dir = os.path.join(specs_path, folder_name)
-    os.makedirs(local_dir, exist_ok=True)
+    # Set status if not the API default ("draft")
+    if initial_status != "draft":
+        import urllib.parse
+        encoded_id = urllib.parse.quote(feature_id, safe="")
+        api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"status": initial_status},
+        )
 
     print(f"specs: created feature '{feature_id}'")
     print(f"  path: {local_dir}")
@@ -918,11 +968,20 @@ def create_document(project_id, feature_name, filename):
             print(f"specs: {filename} already tracked (doc_id: {meta['spec_doc_id']})", file=sys.stderr)
             return
 
+    # Read existing content or create placeholder
+    if os.path.isfile(local_path):
+        with open(local_path, "r", encoding="utf-8") as f:
+            existing = f.read()
+        _, initial_content = parse_frontmatter(existing)
+        initial_content = initial_content.strip() or f"# {filename.replace('.md', '').replace('-', ' ').title()}"
+    else:
+        initial_content = f"# {filename.replace('.md', '').replace('-', ' ').title()}"
+
     # Register document in service
     import urllib.parse
     encoded_feature = urllib.parse.quote(feature_id, safe="")
 
-    payload = {"filename": filename}
+    payload = {"filename": filename, "content": initial_content}
     try:
         status_code, body = api_request(
             f"{service_url}/api/features/lookup/documents?id={encoded_feature}",
@@ -1211,7 +1270,7 @@ def list_features(project_id):
     for f in features:
         name = f.get("name", "?")
         feat_status = f.get("status", "?")
-        doc_count = len(f.get("documents", []))
+        doc_count = f.get("documentCount", 0)
         status_marker = {
             "idea": ".",
             "specifying": "*",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.3 — 2026-04-02
+- Fix: create-feature now sends required `title` and `contextPath` to API (was failing with 400)
+- Fix: create-doc now sends required `content` to API (was failing with 400)
+- Fix: list-features reads `documentCount` instead of missing `documents` array
+- Fix: frontmatter parsing tolerates BOM, `\r\n` line endings, and trailing whitespace
+- Fix: push strips any leaked/double frontmatter from body before sending
+- Fix: render_frontmatter normalizes body join to prevent double-newline compounding
+- Refactor: create_backlog_item passes dict instead of pre-serialized JSON string
+
 ## 0.10.2 — 2026-04-01
 - Fix: specs-pull updates local frontmatter (spec_version, feature_status, doc_status) when content matches but metadata has drifted — prevents stale base_version causing false 409 conflicts on push
 
