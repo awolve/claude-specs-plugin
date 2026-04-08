@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /spec requirements
+# /awolve-spec requirements
 
 Write `requirements.md` for a feature. Use this when stakeholders need to approve *what* gets built before design begins.
 
@@ -81,8 +81,8 @@ Create `${SPEC_DIR}/{NNN}-{feature-name}/requirements.md`:
 If this is a new feature (folder didn't exist before), register it in the spec service:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> requirements.md
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-feature <project-id> <feature-name>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-doc <project-id> <feature-name> requirements.md
 ```
 
 Then re-read the file to pick up the sync frontmatter that was added. The PostToolUse hook will handle pushes from here.
@@ -90,7 +90,7 @@ Then re-read the file to pick up the sync frontmatter that was added. The PostTo
 If the feature already exists but the document is new, register just the document:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> requirements.md
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-doc <project-id> <feature-name> requirements.md
 ```
 
 If the file already has sync frontmatter, the PostToolUse hook handles the push automatically.
@@ -102,7 +102,7 @@ Tell the user:
 ```
 Requirements written: {path to requirements.md}
 
-Next step: get this reviewed on the spec portal. Once approved, run `/spec design` to write the design.
+Next step: get this reviewed on the spec portal. Once approved, run `/awolve-spec design` to write the design.
 ```
 
 Do NOT proceed to write design.md or plan.md. The spec service gates progression between phases.

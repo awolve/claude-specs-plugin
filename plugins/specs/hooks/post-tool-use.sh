@@ -5,6 +5,6 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Read tool use JSON from stdin and pass to sync script
-python3 "${PLUGIN_ROOT}/scripts/sync.py" post-tool-use 2>&1 || {
+python3 "${PLUGIN_ROOT}/scripts/specs-cli.py" post-tool-use 2>&1 || {
     echo "specs-plugin: post-tool-use hook failed" >&2
 }

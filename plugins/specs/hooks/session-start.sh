@@ -4,6 +4,6 @@ set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-python3 "${PLUGIN_ROOT}/scripts/sync.py" pull 2>&1 || {
+python3 "${PLUGIN_ROOT}/scripts/specs-cli.py" pull 2>&1 || {
     echo "specs-plugin: pull failed (network down or not configured)" >&2
 }

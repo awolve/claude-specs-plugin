@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /spec design
+# /awolve-spec design
 
 Write `design.md` for a feature. This is the core spec document — every spec has one. Describes how the feature will be built: architecture, components, interfaces, key decisions.
 
@@ -16,7 +16,7 @@ The user's argument "$ARGUMENTS" may contain a project name, feature name, or bo
 
 If no argument given, look for an existing feature folder that has `requirements.md` but no `design.md`. If multiple candidates, ask the user.
 
-Find the specs path and feature folder. If the feature folder doesn't exist, determine the next spec number and create it (same as `/spec requirements`).
+Find the specs path and feature folder. If the feature folder doesn't exist, determine the next spec number and create it (same as `/awolve-spec requirements`).
 
 ### 2. Read existing context
 
@@ -85,8 +85,8 @@ Adapt the template to the feature — not every section applies to every feature
 If this is a new feature (folder didn't exist before), register it in the spec service:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> design.md
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-feature <project-id> <feature-name>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-doc <project-id> <feature-name> design.md
 ```
 
 Then re-read the file to pick up the sync frontmatter that was added. The PostToolUse hook will handle pushes from here.
@@ -94,7 +94,7 @@ Then re-read the file to pick up the sync frontmatter that was added. The PostTo
 If the feature already exists but the document is new (no spec_doc_id frontmatter), register just the document:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> design.md
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-doc <project-id> <feature-name> design.md
 ```
 
 If the file already has sync frontmatter, the PostToolUse hook handles the push automatically.
@@ -107,8 +107,8 @@ Tell the user:
 Design written: {path to design.md}
 
 Next steps:
-- If this feature touches infrastructure, run `/spec infra` to detail the infra changes
-- Otherwise, run `/spec plan` to create the implementation plan
+- If this feature touches infrastructure, run `/awolve-spec infra` to detail the infra changes
+- Otherwise, run `/awolve-spec plan` to create the implementation plan
 - Or get the design reviewed on the spec portal first
 ```
 

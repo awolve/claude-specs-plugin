@@ -17,7 +17,7 @@ First determine which project to show bugs for. If the user specifies one, use i
 Then run:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py bugs <project-id>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py bugs <project-id>
 ```
 
 Show the results. If there are critical or high severity bugs, highlight them.

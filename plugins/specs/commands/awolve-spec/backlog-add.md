@@ -3,7 +3,7 @@ name: backlog-add
 description: Add a new idea or feature request to the project backlog
 ---
 
-# /backlog-add
+# /awolve-spec backlog-add
 
 Add a new backlog item (idea, feature request) to a project.
 
@@ -22,7 +22,7 @@ Ask the user for:
 Then run:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py backlog-add <project-id> "<title>" "<description>" <priority>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py backlog-add <project-id> "<title>" "<description>" <priority>
 ```
 
 Confirm the item was created. Mention they can promote it to a full spec later from the portal.

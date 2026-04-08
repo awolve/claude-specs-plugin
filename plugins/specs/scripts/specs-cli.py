@@ -1,30 +1,41 @@
 #!/usr/bin/env python3
 """
-Core sync logic for the specs plugin.
+Specs CLI — sync, review, and manage spec documents.
 
 Usage:
-    sync.py pull [project-id]     — Pull latest specs (all projects, or specific one)
-    sync.py push <file_path>      — Push a single spec file
-    sync.py status                — Show sync status of local spec files
-    sync.py set-status <id> <status> — Set feature or document status
-    sync.py create-feature <project-id> <name> [--status STATUS]
-                                  — Create a new feature in a project
-    sync.py create-doc <project-id> <feature-name> <filename>
-                                  — Add a document to an existing feature
-    sync.py rename-feature <project-id> <old-name> <new-name>
-                                  — Rename a feature folder and update the service
-    sync.py rename-doc <file-path> <new-filename>
-                                  — Rename a document file and update the service
-    sync.py delete-doc <file-path>
-                                  — Delete a document from filesystem and service
-    sync.py delete-feature <project-id> <feature-name>
-                                  — Delete a feature and all its documents
-    sync.py list-features <project-id>
-                                  — List all features in a project
-    sync.py bugs <project-id>     — List bugs for a project
-    sync.py bug <project-id> <title> <description> [severity] — Create a bug
-    sync.py post-tool-use         — Hook: read tool use JSON from stdin, push if spec
-    sync.py --help                — Show this help
+    specs-cli.py pull [project-id]     — Pull latest specs (all projects, or specific one)
+    specs-cli.py push <file_path>      — Push a single spec file
+    specs-cli.py status                — Show sync status of local spec files
+    specs-cli.py set-status <id> <status> — Set feature or document status
+    specs-cli.py create-feature <project-id> <name> [--status STATUS]
+                                       — Create a new feature in a project
+    specs-cli.py create-doc <project-id> <feature-name> <filename>
+                                       — Add a document to an existing feature
+    specs-cli.py rename-feature <project-id> <old-name> <new-name>
+                                       — Rename a feature folder and update the service
+    specs-cli.py rename-doc <file-path> <new-filename>
+                                       — Rename a document file and update the service
+    specs-cli.py delete-doc <file-path>
+                                       — Delete a document from filesystem and service
+    specs-cli.py delete-feature <project-id> <feature-name>
+                                       — Delete a feature and all its documents
+    specs-cli.py list-features <project-id>
+                                       — List all features in a project
+    specs-cli.py bugs <project-id>     — List bugs for a project
+    specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
+    specs-cli.py comments <file-path>  — List comments on a spec document
+    specs-cli.py comment <file-path> <body> [--inline --anchor <text>]
+                                       — Add a comment to a spec document
+    specs-cli.py resolve-comment <comment-id> — Resolve a comment
+    specs-cli.py reviews <file-path>   — List reviews on a spec document
+    specs-cli.py review <file-path> <verdict> [body]
+                                       — Submit a review (approved|changes_requested)
+    specs-cli.py versions <file-path>  — List version history
+    specs-cli.py save <file-path> <summary> [--source <source>]
+                                       — Save current file as a named version
+    specs-cli.py service-status        — Check spec service health
+    specs-cli.py post-tool-use         — Hook: read tool use JSON from stdin, push if spec
+    specs-cli.py --help                — Show this help
 """
 
 import hashlib
@@ -152,6 +163,396 @@ def api_request(url, method="GET", headers=None, data=None):
 
 
 # ---------------------------------------------------------------------------
+# Doc ID resolution
+# ---------------------------------------------------------------------------
+
+def resolve_doc_id(file_path):
+    """Resolve a local spec file path to a spec service document ID.
+
+    Returns (cfg, headers, service_url, doc_id, project_id, feature_name, filename).
+    Exits on error.
+    """
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    abs_path = os.path.abspath(file_path)
+
+    # Try frontmatter first
+    if os.path.isfile(abs_path):
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                content = f.read(2048)
+            meta, _ = parse_frontmatter(content)
+            if meta.get("spec_doc_id"):
+                proj = config.find_project_for_file(cfg, abs_path)
+                project_id = proj["id"] if proj else "unknown"
+                return cfg, headers, service_url, meta["spec_doc_id"], project_id, "", os.path.basename(abs_path)
+        except (IOError, OSError):
+            pass
+
+    # Fall back to API lookup
+    proj = config.find_project_for_file(cfg, abs_path)
+    if not proj:
+        print(f"specs: {file_path} is not inside any configured specs path", file=sys.stderr)
+        sys.exit(1)
+
+    # Extract feature name from path: .../specs/{feature-name}/{filename}
+    rel = os.path.relpath(abs_path, proj["path"])
+    parts = rel.replace("\\", "/").split("/")
+    if len(parts) < 2:
+        print(f"specs: cannot determine feature from path {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    feature_name = parts[0]
+    filename = parts[-1]
+    feature_id = f"{proj['id']}/{feature_name}"
+
+    import urllib.parse
+    encoded_id = urllib.parse.quote(feature_id, safe="")
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to look up feature — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: feature '{feature_id}' not found (HTTP {status_code})", file=sys.stderr)
+        sys.exit(1)
+
+    feature_data = json.loads(body)
+    documents = feature_data.get("documents", [])
+    for doc in documents:
+        if doc.get("filename") == filename:
+            return cfg, headers, service_url, doc["id"], proj["id"], feature_name, filename
+
+    print(f"specs: document '{filename}' not found in feature '{feature_id}'", file=sys.stderr)
+    sys.exit(1)
+
+
+def _init_and_auth():
+    """Common init: read config, get auth headers. Returns (cfg, headers, service_url)."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        sys.exit(1)
+    return cfg, headers, cfg["service_url"]
+
+
+# ---------------------------------------------------------------------------
+# Comments
+# ---------------------------------------------------------------------------
+
+def list_comments(file_path, as_json=False):
+    """List comments on a spec document."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/documents/{doc_id}/comments",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to fetch comments — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to fetch comments (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    comments = json.loads(body)
+
+    if as_json:
+        print(json.dumps(comments, indent=2))
+        return
+
+    unresolved = [c for c in comments if not c.get("resolved")]
+    resolved = [c for c in comments if c.get("resolved")]
+
+    if not comments:
+        print("specs: no comments")
+        return
+
+    if unresolved:
+        print(f"=== Unresolved ({len(unresolved)}) ===\n")
+        for c in unresolved:
+            _print_comment(c)
+
+    if resolved:
+        print(f"=== Resolved ({len(resolved)}) ===\n")
+        for c in resolved:
+            _print_comment(c)
+
+
+def _print_comment(c):
+    """Print a single comment."""
+    author = c.get("author", "?")
+    date = c.get("createdAt", "?")[:10]
+    body = c.get("body", "")
+    ctype = c.get("type", "thread")
+    anchor = c.get("anchorText", "")
+    comment_id = c.get("id", "?")
+
+    prefix = f"  [{ctype}]" if ctype == "inline" else "  "
+    print(f"{prefix} {author} ({date}) [{comment_id}]")
+    if anchor:
+        print(f"    anchor: \"{anchor}\"")
+    print(f"    {body}")
+    print()
+
+
+def add_comment(file_path, body, inline=False, anchor_text=None):
+    """Add a comment to a spec document."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    payload = {"body": body, "type": "inline" if inline else "thread"}
+    if inline and anchor_text:
+        payload["anchorText"] = anchor_text
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/documents/{doc_id}/comments",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to add comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to add comment (HTTP {status_code}): {resp}", file=sys.stderr)
+        sys.exit(1)
+
+    print("specs: comment added")
+
+
+def resolve_comment(comment_id):
+    """Mark a comment as resolved."""
+    _, headers, service_url = _init_and_auth()
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/comments/{comment_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"resolved": True},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to resolve comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to resolve comment (HTTP {status_code}): {resp}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment {comment_id} resolved")
+
+
+# ---------------------------------------------------------------------------
+# Reviews
+# ---------------------------------------------------------------------------
+
+def list_reviews(file_path, as_json=False):
+    """List reviews on a spec document."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/documents/{doc_id}/reviews",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to fetch reviews — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to fetch reviews (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    reviews = json.loads(body)
+
+    if as_json:
+        print(json.dumps(reviews, indent=2))
+        return
+
+    if not reviews:
+        print("specs: no reviews")
+        return
+
+    for r in reviews:
+        author = r.get("author", "?")
+        date = r.get("createdAt", "?")[:10]
+        verdict = r.get("verdict", "?")
+        rbody = r.get("body", "")
+        version = r.get("version", "?")
+        marker = "+" if verdict == "approved" else "!"
+        print(f"  [{marker}] {author} ({date}) — {verdict} (v{version})")
+        if rbody:
+            print(f"      {rbody}")
+        print()
+
+
+def submit_review(file_path, verdict, body=None):
+    """Submit a review on a spec document."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    if verdict not in ("approved", "changes_requested"):
+        print(f"specs: verdict must be 'approved' or 'changes_requested', got '{verdict}'", file=sys.stderr)
+        sys.exit(1)
+
+    payload = {"verdict": verdict}
+    if body:
+        payload["body"] = body
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/documents/{doc_id}/reviews",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to submit review — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to submit review (HTTP {status_code}): {resp}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: review submitted — {verdict}")
+
+
+# ---------------------------------------------------------------------------
+# Versions
+# ---------------------------------------------------------------------------
+
+def list_versions(file_path, as_json=False):
+    """List version history of a spec document."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/documents/{doc_id}/versions",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to fetch versions — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to fetch versions (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    versions = json.loads(body)
+
+    if as_json:
+        print(json.dumps(versions, indent=2))
+        return
+
+    if not versions:
+        print("specs: no versions")
+        return
+
+    for v in versions:
+        num = v.get("version", "?")
+        author = v.get("author", "?")
+        date = v.get("createdAt", "?")[:10]
+        summary = v.get("summary", "")
+        source = v.get("source", "?")
+        print(f"  v{num}  {author} ({date})  [{source}]")
+        if summary:
+            print(f"    {summary}")
+        print()
+
+
+def save_version(file_path, summary, source="manual"):
+    """Save the current file as a new named version in the spec service."""
+    _, headers, service_url, doc_id, *_ = resolve_doc_id(file_path)
+
+    abs_path = os.path.abspath(file_path)
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, OSError) as e:
+        print(f"specs: cannot read {file_path} — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    _, body = parse_frontmatter(content)
+
+    payload = {
+        "content": body.strip(),
+        "summary": summary,
+        "source": source,
+    }
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/documents/{doc_id}/versions",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to save version — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to save version (HTTP {status_code}): {resp}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        resp_data = json.loads(resp)
+        version_num = resp_data.get("version", "?")
+    except (json.JSONDecodeError, AttributeError):
+        version_num = "?"
+
+    print(f"specs: saved version v{version_num} — {summary}")
+
+
+# ---------------------------------------------------------------------------
+# Service status
+# ---------------------------------------------------------------------------
+
+def service_status():
+    """Check spec service health."""
+    _, headers, service_url = _init_and_auth()
+
+    try:
+        status_code, body = api_request(f"{service_url}/api/status", headers=headers)
+    except ConnectionError as e:
+        print(f"specs: service unreachable — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: service returned HTTP {status_code}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: service OK")
+    try:
+        data = json.loads(body)
+        for k, v in data.items():
+            print(f"  {k}: {v}")
+    except json.JSONDecodeError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Pull (single project)
 # ---------------------------------------------------------------------------
 
@@ -167,7 +568,7 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
 
     if status == 401:
         if not quiet:
-            print("specs: authentication expired — run /specs-login", file=sys.stderr)
+            print("specs: authentication expired — run /awolve-spec login", file=sys.stderr)
         return 0, 0
     if status == 404:
         if not quiet:
@@ -271,7 +672,7 @@ def pull(project_filter=None, quiet=False):
     headers = auth.get_headers()
     if not headers:
         if not quiet:
-            print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+            print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -316,7 +717,7 @@ def push(file_path):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -365,7 +766,7 @@ def push(file_path):
         print(f"specs: CONFLICT — remote has newer version. Pull first.", file=sys.stderr)
         return
     if status_code == 401:
-        print("specs: authentication expired — run /specs-login", file=sys.stderr)
+        print("specs: authentication expired — run /awolve-spec login", file=sys.stderr)
         sys.exit(1)
     if status_code not in (200, 201, 204):
         print(f"specs: push failed (HTTP {status_code}): {resp_body}", file=sys.stderr)
@@ -525,7 +926,7 @@ def set_status(identifier, new_status):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -635,7 +1036,7 @@ def list_bugs(project_id=None):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -692,7 +1093,7 @@ def list_backlog(project_id=None):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -749,7 +1150,7 @@ def create_backlog_item(project_id, title, description=None, priority="medium"):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -799,7 +1200,7 @@ def create_bug(project_id, title, description, severity="medium", image_paths=No
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     if severity not in BUG_SEVERITIES:
@@ -865,7 +1266,7 @@ def create_feature(project_id, name, initial_status="specifying"):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -941,7 +1342,7 @@ def create_document(project_id, feature_name, filename):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -956,7 +1357,7 @@ def create_document(project_id, feature_name, filename):
     local_dir = os.path.join(specs_path, feature_name)
     if not os.path.isdir(local_dir):
         print(f"specs: feature folder not found: {local_dir}", file=sys.stderr)
-        print(f"  run: sync.py create-feature {project_id} {feature_name}", file=sys.stderr)
+        print(f"  run: specs-cli.py create-feature {project_id} {feature_name}", file=sys.stderr)
         sys.exit(1)
 
     local_path = os.path.join(local_dir, filename)
@@ -1031,7 +1432,7 @@ def rename_feature(project_id, old_name, new_name):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1095,7 +1496,7 @@ def rename_document(file_path, new_filename):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1151,7 +1552,7 @@ def delete_document(file_path):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1199,7 +1600,7 @@ def delete_feature(project_id, feature_name):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1242,7 +1643,7 @@ def list_features(project_id):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /specs-login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1304,14 +1705,14 @@ def main():
         pull(project_filter=project_filter, quiet=quiet)
     elif cmd == "push":
         if len(args) < 2:
-            print("Usage: sync.py push <file_path>", file=sys.stderr)
+            print("Usage: specs-cli.py push <file_path>", file=sys.stderr)
             sys.exit(1)
         push(args[1])
     elif cmd == "status":
         show_status()
     elif cmd == "set-status":
         if len(args) < 3:
-            print("Usage: sync.py set-status <feature-or-doc-id> <status>", file=sys.stderr)
+            print("Usage: specs-cli.py set-status <feature-or-doc-id> <status>", file=sys.stderr)
             print(f"  Feature statuses: {', '.join(FEATURE_STATUSES)}", file=sys.stderr)
             print(f"  Document statuses: {', '.join(DOCUMENT_STATUSES)}", file=sys.stderr)
             sys.exit(1)
@@ -1332,7 +1733,7 @@ def main():
                 filtered.append(args[i])
                 i += 1
         if len(filtered) < 3:
-            print("Usage: sync.py bug <project-id> <title> <description> [severity] [--attach file ...]", file=sys.stderr)
+            print("Usage: specs-cli.py bug <project-id> <title> <description> [severity] [--attach file ...]", file=sys.stderr)
             sys.exit(1)
         sev = filtered[3] if len(filtered) > 3 else "medium"
         create_bug(filtered[0], filtered[1], filtered[2], sev, images or None)
@@ -1341,14 +1742,14 @@ def main():
         list_backlog(proj)
     elif cmd == "backlog-add":
         if len(args) < 3:
-            print("Usage: sync.py backlog-add <project-id> <title> [description] [priority]", file=sys.stderr)
+            print("Usage: specs-cli.py backlog-add <project-id> <title> [description] [priority]", file=sys.stderr)
             sys.exit(1)
         desc = args[3] if len(args) > 3 else None
         pri = args[4] if len(args) > 4 else "medium"
         create_backlog_item(args[1], args[2], desc, pri)
     elif cmd == "create-feature":
         if len(args) < 3:
-            print("Usage: sync.py create-feature <project-id> <name> [--status STATUS]", file=sys.stderr)
+            print("Usage: specs-cli.py create-feature <project-id> <name> [--status STATUS]", file=sys.stderr)
             sys.exit(1)
         status_val = "specifying"
         for i, a in enumerate(args):
@@ -1357,34 +1758,81 @@ def main():
         create_feature(args[1], args[2], initial_status=status_val)
     elif cmd == "create-doc":
         if len(args) < 4:
-            print("Usage: sync.py create-doc <project-id> <feature-name> <filename>", file=sys.stderr)
+            print("Usage: specs-cli.py create-doc <project-id> <feature-name> <filename>", file=sys.stderr)
             sys.exit(1)
         create_document(args[1], args[2], args[3])
     elif cmd == "rename-feature":
         if len(args) < 4:
-            print("Usage: sync.py rename-feature <project-id> <old-name> <new-name>", file=sys.stderr)
+            print("Usage: specs-cli.py rename-feature <project-id> <old-name> <new-name>", file=sys.stderr)
             sys.exit(1)
         rename_feature(args[1], args[2], args[3])
     elif cmd == "rename-doc":
         if len(args) < 3:
-            print("Usage: sync.py rename-doc <file-path> <new-filename>", file=sys.stderr)
+            print("Usage: specs-cli.py rename-doc <file-path> <new-filename>", file=sys.stderr)
             sys.exit(1)
         rename_document(args[1], args[2])
     elif cmd == "delete-doc":
         if len(args) < 2:
-            print("Usage: sync.py delete-doc <file-path>", file=sys.stderr)
+            print("Usage: specs-cli.py delete-doc <file-path>", file=sys.stderr)
             sys.exit(1)
         delete_document(args[1])
     elif cmd == "delete-feature":
         if len(args) < 3:
-            print("Usage: sync.py delete-feature <project-id> <feature-name>", file=sys.stderr)
+            print("Usage: specs-cli.py delete-feature <project-id> <feature-name>", file=sys.stderr)
             sys.exit(1)
         delete_feature(args[1], args[2])
     elif cmd == "list-features":
         if len(args) < 2:
-            print("Usage: sync.py list-features <project-id>", file=sys.stderr)
+            print("Usage: specs-cli.py list-features <project-id>", file=sys.stderr)
             sys.exit(1)
         list_features(args[1])
+    elif cmd == "comments":
+        if len(args) < 2:
+            print("Usage: specs-cli.py comments <file-path> [--json]", file=sys.stderr)
+            sys.exit(1)
+        list_comments(args[1], as_json="--json" in args)
+    elif cmd == "comment":
+        if len(args) < 3:
+            print("Usage: specs-cli.py comment <file-path> <body> [--inline --anchor <text>]", file=sys.stderr)
+            sys.exit(1)
+        inline = "--inline" in args
+        anchor = None
+        for i, a in enumerate(args):
+            if a == "--anchor" and i + 1 < len(args):
+                anchor = args[i + 1]
+        add_comment(args[1], args[2], inline=inline, anchor_text=anchor)
+    elif cmd == "resolve-comment":
+        if len(args) < 2:
+            print("Usage: specs-cli.py resolve-comment <comment-id>", file=sys.stderr)
+            sys.exit(1)
+        resolve_comment(args[1])
+    elif cmd == "reviews":
+        if len(args) < 2:
+            print("Usage: specs-cli.py reviews <file-path> [--json]", file=sys.stderr)
+            sys.exit(1)
+        list_reviews(args[1], as_json="--json" in args)
+    elif cmd == "review":
+        if len(args) < 3:
+            print("Usage: specs-cli.py review <file-path> <approved|changes_requested> [body]", file=sys.stderr)
+            sys.exit(1)
+        review_body = args[3] if len(args) > 3 and not args[3].startswith("-") else None
+        submit_review(args[1], args[2], body=review_body)
+    elif cmd == "versions":
+        if len(args) < 2:
+            print("Usage: specs-cli.py versions <file-path> [--json]", file=sys.stderr)
+            sys.exit(1)
+        list_versions(args[1], as_json="--json" in args)
+    elif cmd == "save":
+        if len(args) < 3:
+            print("Usage: specs-cli.py save <file-path> <summary> [--source <source>]", file=sys.stderr)
+            sys.exit(1)
+        source = "manual"
+        for i, a in enumerate(args):
+            if a == "--source" and i + 1 < len(args):
+                source = args[i + 1]
+        save_version(args[1], args[2], source=source)
+    elif cmd == "service-status":
+        service_status()
     elif cmd == "post-tool-use":
         handle_post_tool_use()
     else:

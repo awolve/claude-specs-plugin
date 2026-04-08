@@ -3,7 +3,7 @@ name: backlog
 description: List backlog items for a project
 ---
 
-# /backlog
+# /awolve-spec backlog
 
 List backlog items (ideas, feature requests) for a project.
 
@@ -17,7 +17,7 @@ First determine which project to show backlog for. If the user specifies one, us
 Then run:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py backlog <project-id>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py backlog <project-id>
 ```
 
 Show the results. Highlight high-priority items.

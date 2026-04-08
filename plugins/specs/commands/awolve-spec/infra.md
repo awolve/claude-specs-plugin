@@ -4,13 +4,13 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /spec infra
+# /awolve-spec infra
 
 Review an existing `design.md` and add a detailed `## Infrastructure` section covering all infrastructure changes the feature requires. Uses SIGL description headers as a reasoning framework (see `handbook-context/engineering/architecture/sigl-spec.md`).
 
 ## When to use
 
-Run this after `/spec design` when the feature touches cloud infrastructure, new services, networking, deployment, or system topology. Skip it for pure application-code changes with no infra footprint.
+Run this after `/awolve-spec design` when the feature touches cloud infrastructure, new services, networking, deployment, or system topology. Skip it for pure application-code changes with no infra footprint.
 
 ## Instructions
 
@@ -18,7 +18,7 @@ Run this after `/spec design` when the feature touches cloud infrastructure, new
 
 The user's argument "$ARGUMENTS" may contain a project name, feature name, or both.
 
-Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/spec design` first.
+Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/awolve-spec design` first.
 
 ### 2. Read context
 
@@ -127,5 +127,5 @@ Tell the user:
 ```
 Infrastructure section added to: {path to design.md}
 
-Next step: run `/spec plan` to create the implementation plan, or get the design reviewed first.
+Next step: run `/awolve-spec plan` to create the implementation plan, or get the design reviewed first.
 ```

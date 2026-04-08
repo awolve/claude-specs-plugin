@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /spec plan
+# /awolve-spec plan
 
 Write `plan.md` for a feature. Covers the implementation approach, sequencing, task breakdown, and dependencies. Use this when the feature is complex enough to need a structured implementation plan.
 
@@ -14,7 +14,7 @@ Write `plan.md` for a feature. Covers the implementation approach, sequencing, t
 
 The user's argument "$ARGUMENTS" may contain a project name, feature name, or both.
 
-Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/spec design` first.
+Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/awolve-spec design` first.
 
 ### 2. Read existing context
 
@@ -65,7 +65,7 @@ Adapt the template — if dependencies aren't relevant, skip that section. If ph
 If the document is new (no spec_doc_id frontmatter), register it:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-doc <project-id> <feature-name> plan.md
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-doc <project-id> <feature-name> plan.md
 ```
 
 Then re-read the file to pick up the sync frontmatter. The PostToolUse hook handles pushes from here.

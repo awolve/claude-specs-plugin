@@ -4,7 +4,7 @@ description: Create a new feature in a project
 argument-hint: [project-id] [feature-name]
 ---
 
-# /specs-create-feature
+# /awolve-spec create-feature
 
 Create a new feature in a project, registered in both the local filesystem and the spec service.
 
@@ -17,11 +17,11 @@ If the user didn't provide arguments, ask:
 The script auto-assigns the next spec number (e.g. `004-user-notifications`).
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py create-feature <project-id> <feature-name> [--status STATUS]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-feature <project-id> <feature-name> [--status STATUS]
 ```
 
 Default status is `specifying`. Use `--status idea` for placeholder features.
 
 After creation, suggest next steps:
-- `/spec requirements` to write requirements
-- `/spec design` to write the design doc
+- `/awolve-spec requirements` to write requirements
+- `/awolve-spec design` to write the design doc

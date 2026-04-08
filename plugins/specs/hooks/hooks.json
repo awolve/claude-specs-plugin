@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py pull --quiet",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py pull --quiet",
             "timeout": 30
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py post-tool-use",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py post-tool-use",
             "timeout": 15
           }
         ]

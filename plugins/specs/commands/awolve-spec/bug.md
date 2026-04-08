@@ -19,7 +19,7 @@ Gather these from the user:
 To attach images, use `--attach`:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.py bug "<project-id>" "<title>" "<description>" "<severity>" --attach /path/to/screenshot.png
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py bug "<project-id>" "<title>" "<description>" "<severity>" --attach /path/to/screenshot.png
 ```
 
 Multiple images: add `--attach <path>` for each one. Images are base64-encoded into the bug description.

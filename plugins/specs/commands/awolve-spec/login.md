@@ -4,7 +4,7 @@ description: Authenticate with the Awolve Spec Service
 allowed-tools: [AskUserQuestion]
 ---
 
-# /specs-login
+# /awolve-spec login
 
 Authenticate with the Awolve Spec Service so specs can be synced.
 
@@ -31,4 +31,4 @@ Then, based on their answer:
 >
 > The key is read from your clipboard, verified, and saved. Your clipboard is cleared afterwards.
 
-Then verify with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status` and suggest `/specs-pull`.
+Then verify with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status` and suggest `/awolve-spec pull`.
