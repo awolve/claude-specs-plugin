@@ -21,6 +21,8 @@ Usage:
                                        — Delete a feature and all its documents
     specs-cli.py list-features <project-id>
                                        — List all features in a project
+    specs-cli.py list-docs <project-id> <feature-name>
+                                       — List all documents in a feature
     specs-cli.py bugs <project-id>     — List bugs for a project
     specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
     specs-cli.py comments <file-path>  — List comments on a spec document
@@ -1634,6 +1636,53 @@ def delete_feature(project_id, feature_name):
     print(f"specs: deleted feature '{feature_id}'")
 
 
+def list_docs(project_id, feature_name):
+    """List all documents in a feature."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    feature_id = f"{project_id}/{feature_name}"
+
+    import urllib.parse
+    encoded_id = urllib.parse.quote(feature_id, safe="")
+
+    try:
+        status_code, body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to look up feature — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: feature '{feature_id}' not found (HTTP {status_code})", file=sys.stderr)
+        sys.exit(1)
+
+    feature_data = json.loads(body)
+    documents = feature_data.get("documents", [])
+
+    if not documents:
+        print(f"specs: no documents in '{feature_id}'")
+        return
+
+    print(f"specs: {len(documents)} document(s) in '{feature_id}'")
+    print()
+    for doc in documents:
+        filename = doc.get("filename", "?")
+        doc_status = doc.get("status", "?")
+        version = doc.get("versionCount", "?")
+        print(f"  {filename:40s}  v{version}  {doc_status}")
+
+
 def list_features(project_id):
     """List all features in a project."""
     cfg = config.read_config()
@@ -1786,6 +1835,11 @@ def main():
             print("Usage: specs-cli.py list-features <project-id>", file=sys.stderr)
             sys.exit(1)
         list_features(args[1])
+    elif cmd == "list-docs":
+        if len(args) < 3:
+            print("Usage: specs-cli.py list-docs <project-id> <feature-name>", file=sys.stderr)
+            sys.exit(1)
+        list_docs(args[1], args[2])
     elif cmd == "comments":
         if len(args) < 2:
             print("Usage: specs-cli.py comments <file-path> [--json]", file=sys.stderr)
