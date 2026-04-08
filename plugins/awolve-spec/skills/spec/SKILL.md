@@ -1,5 +1,5 @@
 ---
-name: specs:spec
+name: awolve-spec:spec
 description: Spec-driven development — create, sync, and manage spec documents. Use when the user mentions specs, wants to create a spec, work on specs, read specs, edit specs, plan a feature, or discuss feature specifications.
 ---
 
