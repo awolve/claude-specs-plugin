@@ -1,16 +1,16 @@
 {
   "name": "awolve-open-claude-plugins",
-  "version": "0.10.9",
-  "description": "Awolve Spec Service plugin — sync spec files, comment, and collaborate",
+  "version": "0.12.0",
+  "description": "Awolve open-source Claude Code plugins",
   "owner": {
     "name": "Awolve",
     "url": "https://awolve.ai"
   },
   "plugins": [
     {
-      "name": "specs",
-      "description": "Sync spec files with Awolve Spec Service — auto-pull on session start, auto-push on save",
-      "source": "./plugins/specs",
+      "name": "awolve-spec",
+      "description": "Spec-driven development — create, sync, and manage spec documents with the Awolve Spec Service",
+      "source": "./plugins/awolve-spec",
       "category": "development"
     }
   ]
