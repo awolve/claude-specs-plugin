@@ -1,5 +1,4 @@
 ---
-name: specs-set-status
 description: Change the status of a feature or document
 ---
 

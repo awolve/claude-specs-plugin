@@ -1,5 +1,4 @@
 ---
-name: bug
 description: Report a new bug
 ---
 

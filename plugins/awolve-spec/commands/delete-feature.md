@@ -1,5 +1,4 @@
 ---
-name: specs-delete-feature
 description: Delete a feature and all its documents
 argument-hint: [project-id] [feature-name]
 ---

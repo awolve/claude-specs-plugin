@@ -1,5 +1,4 @@
 ---
-name: backlog-add
 description: Add a new idea or feature request to the project backlog
 ---
 

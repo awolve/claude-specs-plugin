@@ -1,5 +1,4 @@
 ---
-name: backlog
 description: List backlog items for a project
 ---
 

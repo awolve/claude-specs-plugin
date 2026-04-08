@@ -1,5 +1,4 @@
 ---
-name: specs-delete-doc
 description: Delete a document
 argument-hint: [file-path]
 ---

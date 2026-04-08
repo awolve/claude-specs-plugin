@@ -1,5 +1,4 @@
 ---
-name: specs-create-doc
 description: Add a document to an existing feature
 argument-hint: [project-id] [feature-name] [filename]
 ---

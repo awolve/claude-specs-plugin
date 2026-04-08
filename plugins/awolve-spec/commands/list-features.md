@@ -1,5 +1,4 @@
 ---
-name: specs-list-features
 description: List all features in a project
 argument-hint: [project-id]
 ---

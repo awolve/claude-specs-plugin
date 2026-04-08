@@ -1,5 +1,4 @@
 ---
-name: specs-login
 description: Authenticate with the Awolve Spec Service
 allowed-tools: [AskUserQuestion]
 ---

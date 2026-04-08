@@ -1,5 +1,4 @@
 ---
-name: specs-rename-feature
 description: Rename a feature
 argument-hint: [project-id] [old-name] [new-name]
 ---

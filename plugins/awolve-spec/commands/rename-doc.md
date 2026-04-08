@@ -1,5 +1,4 @@
 ---
-name: specs-rename-doc
 description: Rename a document
 argument-hint: [file-path] [new-filename]
 ---

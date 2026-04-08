@@ -1,5 +1,4 @@
 ---
-name: specs-status
 description: Show sync status of local spec files
 ---
 

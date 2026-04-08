@@ -1,5 +1,4 @@
 ---
-name: specs-create-feature
 description: Create a new feature in a project
 argument-hint: [project-id] [feature-name]
 ---

@@ -1,5 +1,4 @@
 ---
-name: bugs
 description: List open bugs for a project
 ---
 

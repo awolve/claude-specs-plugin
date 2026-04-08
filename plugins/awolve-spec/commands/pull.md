@@ -1,5 +1,4 @@
 ---
-name: specs-pull
 description: Pull latest spec files from the spec service
 ---
 
