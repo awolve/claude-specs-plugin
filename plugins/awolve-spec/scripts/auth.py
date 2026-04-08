@@ -122,7 +122,7 @@ def get_headers():
     if method == "azure-cli":
         token, _ = _get_azure_token()
         if not token:
-            print("specs: Azure CLI token unavailable — run 'az login' or '/awolve-spec login'", file=sys.stderr)
+            print("specs: Azure CLI token unavailable — run 'az login' or '/awolve-spec:login'", file=sys.stderr)
             return None
         return {"Authorization": f"Bearer {token}"}
 
@@ -169,7 +169,7 @@ def login_azure(service_url=None):
         email = _get_azure_email() or "unknown"
         print(f"specs: Azure CLI token ({email}, env: {env_name}) was rejected by {url}", file=sys.stderr)
         print(f"specs: your Azure account may not have access to this spec service", file=sys.stderr)
-        print(f"specs: use an API key instead: /awolve-spec login with --api-key", file=sys.stderr)
+        print(f"specs: use an API key instead: /awolve-spec:login with --api-key", file=sys.stderr)
         return False
 
     email = _get_azure_email() or "unknown"
@@ -275,7 +275,7 @@ def status():
         url = data.get("service_url", "default")
         print(f"specs: authenticated as {email} via API key ({url})")
     else:
-        print("specs: not authenticated — run /awolve-spec login")
+        print("specs: not authenticated — run /awolve-spec:login")
 
 
 if __name__ == "__main__":

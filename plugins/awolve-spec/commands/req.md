@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /awolve-spec requirements
+# /awolve-spec:req
 
 Write `requirements.md` for a feature. Use this when stakeholders need to approve *what* gets built before design begins.
 
@@ -102,7 +102,7 @@ Tell the user:
 ```
 Requirements written: {path to requirements.md}
 
-Next step: get this reviewed on the spec portal. Once approved, run `/awolve-spec design` to write the design.
+Next step: get this reviewed on the spec portal. Once approved, run `/awolve-spec:design` to write the design.
 ```
 
 Do NOT proceed to write design.md or plan.md. The spec service gates progression between phases.

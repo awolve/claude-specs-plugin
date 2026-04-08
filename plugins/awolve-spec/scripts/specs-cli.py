@@ -179,7 +179,7 @@ def resolve_doc_id(file_path):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -249,7 +249,7 @@ def _init_and_auth():
         sys.exit(1)
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
     return cfg, headers, cfg["service_url"]
 
@@ -568,7 +568,7 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
 
     if status == 401:
         if not quiet:
-            print("specs: authentication expired — run /awolve-spec login", file=sys.stderr)
+            print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
         return 0, 0
     if status == 404:
         if not quiet:
@@ -672,7 +672,7 @@ def pull(project_filter=None, quiet=False):
     headers = auth.get_headers()
     if not headers:
         if not quiet:
-            print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+            print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -717,7 +717,7 @@ def push(file_path):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -766,7 +766,7 @@ def push(file_path):
         print(f"specs: CONFLICT — remote has newer version. Pull first.", file=sys.stderr)
         return
     if status_code == 401:
-        print("specs: authentication expired — run /awolve-spec login", file=sys.stderr)
+        print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
         sys.exit(1)
     if status_code not in (200, 201, 204):
         print(f"specs: push failed (HTTP {status_code}): {resp_body}", file=sys.stderr)
@@ -926,7 +926,7 @@ def set_status(identifier, new_status):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1036,7 +1036,7 @@ def list_bugs(project_id=None):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1093,7 +1093,7 @@ def list_backlog(project_id=None):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1150,7 +1150,7 @@ def create_backlog_item(project_id, title, description=None, priority="medium"):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1200,7 +1200,7 @@ def create_bug(project_id, title, description, severity="medium", image_paths=No
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     if severity not in BUG_SEVERITIES:
@@ -1266,7 +1266,7 @@ def create_feature(project_id, name, initial_status="specifying"):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1342,7 +1342,7 @@ def create_document(project_id, feature_name, filename):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1432,7 +1432,7 @@ def rename_feature(project_id, old_name, new_name):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1496,7 +1496,7 @@ def rename_document(file_path, new_filename):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1552,7 +1552,7 @@ def delete_document(file_path):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]
@@ -1600,7 +1600,7 @@ def delete_feature(project_id, feature_name):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     proj = _find_project(cfg, project_id)
@@ -1643,7 +1643,7 @@ def list_features(project_id):
 
     headers = auth.get_headers()
     if not headers:
-        print("specs: not authenticated — run /awolve-spec login first", file=sys.stderr)
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
     service_url = cfg["service_url"]

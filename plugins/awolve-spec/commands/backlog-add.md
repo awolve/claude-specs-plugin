@@ -3,7 +3,7 @@ name: backlog-add
 description: Add a new idea or feature request to the project backlog
 ---
 
-# /awolve-spec backlog-add
+# /awolve-spec:backlog-add
 
 Add a new backlog item (idea, feature request) to a project.
 

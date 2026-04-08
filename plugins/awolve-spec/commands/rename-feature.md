@@ -4,7 +4,7 @@ description: Rename a feature
 argument-hint: [project-id] [old-name] [new-name]
 ---
 
-# /awolve-spec rename-feature
+# /awolve-spec:rename-feature
 
 Rename a feature folder and update the spec service record.
 

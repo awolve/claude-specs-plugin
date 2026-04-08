@@ -25,11 +25,11 @@ These are the only spec document names. Other files in the folder are supporting
 
 | Command | What it does |
 |---------|-------------|
-| `/awolve-spec requirements` | Write `requirements.md` — push to service — stop for review |
-| `/awolve-spec design` | Write `design.md` — push — stop for review |
-| `/awolve-spec infra` | Enrich `design.md` with infrastructure details (SIGL-inspired) |
-| `/awolve-spec plan` | Write `plan.md` — push — ready to implement |
-| `/awolve-spec retro` | Document work after the fact (`design.md` + optional `plan.md`) |
+| `/awolve-spec:req` | Write `requirements.md` — push to service — stop for review |
+| `/awolve-spec:design` | Write `design.md` — push — stop for review |
+| `/awolve-spec:infra` | Enrich `design.md` with infrastructure details (SIGL-inspired) |
+| `/awolve-spec:plan` | Write `plan.md` — push — ready to implement |
+| `/awolve-spec:retro` | Document work after the fact (`design.md` + optional `plan.md`) |
 
 Each phase is a separate command invocation. Do not write multiple spec files in one session unless the user explicitly asks.
 
@@ -38,29 +38,29 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 **Stakeholder-driven:** requirements → review → design → review → (infra) → plan → review → implement
 **Self-directed:** design → (infra) → plan → implement
 **Small feature:** design → implement
-**No spec:** build it → optionally `/awolve-spec retro`
+**No spec:** build it → optionally `/awolve-spec:retro`
 
 ### Commands — sync and management
 
-- `/awolve-spec pull` — Pull latest spec files from the service
-- `/awolve-spec login` — Authenticate with the spec service
-- `/awolve-spec status` — Show sync status of local spec files
-- `/awolve-spec set-status` — Change feature or document status
-- `/awolve-spec create-feature` — Create a new feature in a project
-- `/awolve-spec create-doc` — Add a document to an existing feature
-- `/awolve-spec rename-feature` — Rename a feature
-- `/awolve-spec rename-doc` — Rename a document
-- `/awolve-spec delete-doc` — Delete a document
-- `/awolve-spec delete-feature` — Delete a feature and all its documents
-- `/awolve-spec list-features` — List all features in a project
-- `/awolve-spec backlog` — List backlog items
-- `/awolve-spec backlog-add` — Add a backlog item
+- `/awolve-spec:pull` — Pull latest spec files from the service
+- `/awolve-spec:login` — Authenticate with the spec service
+- `/awolve-spec:status` — Show sync status of local spec files
+- `/awolve-spec:set-status` — Change feature or document status
+- `/awolve-spec:create-feature` — Create a new feature in a project
+- `/awolve-spec:create-doc` — Add a document to an existing feature
+- `/awolve-spec:rename-feature` — Rename a feature
+- `/awolve-spec:rename-doc` — Rename a document
+- `/awolve-spec:delete-doc` — Delete a document
+- `/awolve-spec:delete-feature` — Delete a feature and all its documents
+- `/awolve-spec:list-features` — List all features in a project
+- `/awolve-spec:backlog` — List backlog items
+- `/awolve-spec:backlog-add` — Add a backlog item
 - `/bugs` — List bugs
 - `/bug` — Report a bug
 
 ## Important: Always pull before reading specs
 
-**Before reading or working with spec files, always run `/awolve-spec pull` first** to ensure you have the latest versions. The SessionStart hook handles this for new sessions, but mid-session you must pull manually.
+**Before reading or working with spec files, always run `/awolve-spec:pull` first** to ensure you have the latest versions. The SessionStart hook handles this for new sessions, but mid-session you must pull manually.
 
 Do not assume local spec files are current — pull first, then read.
 
@@ -125,7 +125,7 @@ When a user needs to set up specs config:
 4. **Only create `.claude/specs.local.md`** if the user has a machine-specific path override
 5. **Never create both** unless the user explicitly needs a personal override
 
-Authentication is stored in `~/.claude-specs/auth.json` (per-machine, created by `/awolve-spec login`).
+Authentication is stored in `~/.claude-specs/auth.json` (per-machine, created by `/awolve-spec:login`).
 
 ## Updating the plugin
 

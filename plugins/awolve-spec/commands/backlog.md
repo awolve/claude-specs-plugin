@@ -3,7 +3,7 @@ name: backlog
 description: List backlog items for a project
 ---
 
-# /awolve-spec backlog
+# /awolve-spec:backlog
 
 List backlog items (ideas, feature requests) for a project.
 

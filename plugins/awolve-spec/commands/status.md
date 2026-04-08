@@ -3,7 +3,7 @@ name: specs-status
 description: Show sync status of local spec files
 ---
 
-# /awolve-spec status
+# /awolve-spec:status
 
 Show the sync status of local spec files and authentication.
 
@@ -19,7 +19,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py status
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auth.py status
 ```
 
-If not authenticated, suggest running `/awolve-spec login`.
+If not authenticated, suggest running `/awolve-spec:login`.
 
 If no config found, explain the two config options:
 - `.claude/specs.md` — committed, shared with the team. Use when paths are the same for everyone (e.g. `./specs` for external devs).

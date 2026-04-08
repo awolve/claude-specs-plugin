@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /awolve-spec retro
+# /awolve-spec:retro
 
 Document work that was already done. Creates `design.md` (always) and optionally `plan.md` with tasks checked off as a record of what was built.
 
@@ -35,7 +35,7 @@ Ask the user to confirm or clarify:
 
 ### 3. Write design.md
 
-Create `design.md` documenting what was built — architecture, components, key decisions. Follow the same format as `/awolve-spec design` but written in past tense (what was built, not what will be built).
+Create `design.md` documenting what was built — architecture, components, key decisions. Follow the same format as `/awolve-spec:design` but written in past tense (what was built, not what will be built).
 
 ### 4. Optionally write plan.md
 

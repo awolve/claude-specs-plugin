@@ -4,7 +4,7 @@ description: Rename a document
 argument-hint: [file-path] [new-filename]
 ---
 
-# /awolve-spec rename-doc
+# /awolve-spec:rename-doc
 
 Rename a spec document file and update the spec service record.
 

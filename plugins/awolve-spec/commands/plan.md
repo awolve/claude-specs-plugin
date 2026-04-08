@@ -4,7 +4,7 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion]
 argument-hint: [project/feature-name]
 ---
 
-# /awolve-spec plan
+# /awolve-spec:plan
 
 Write `plan.md` for a feature. Covers the implementation approach, sequencing, task breakdown, and dependencies. Use this when the feature is complex enough to need a structured implementation plan.
 
@@ -14,7 +14,7 @@ Write `plan.md` for a feature. Covers the implementation approach, sequencing, t
 
 The user's argument "$ARGUMENTS" may contain a project name, feature name, or both.
 
-Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/awolve-spec design` first.
+Find the feature folder. It must have a `design.md` — if it doesn't, tell the user to run `/awolve-spec:design` first.
 
 ### 2. Read existing context
 

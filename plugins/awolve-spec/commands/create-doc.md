@@ -4,7 +4,7 @@ description: Add a document to an existing feature
 argument-hint: [project-id] [feature-name] [filename]
 ---
 
-# /awolve-spec create-doc
+# /awolve-spec:create-doc
 
 Add a new document to an existing feature, registered in the spec service with sync frontmatter.
 
