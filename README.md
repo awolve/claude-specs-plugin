@@ -1,6 +1,6 @@
-# Awolve Specs Plugin
+# Awolve Spec Plugin
 
-Claude Code plugin for syncing spec files with [Awolve Spec Service](https://specs.awolve.ai).
+Claude Code plugin for spec-driven development with the [Awolve Spec Service](https://specs.awolve.ai).
 
 ## What it does
 
@@ -14,7 +14,7 @@ Run these as slash commands inside Claude Code:
 
 ```
 /plugin marketplace add awolve/open-claude-plugins
-/plugin install specs@awolve-open-claude-plugins
+/plugin install awolve-spec@awolve-open-claude-plugins
 /reload-plugins
 ```
 
@@ -26,7 +26,7 @@ Run these as slash commands inside Claude Code:
 
 ## Setup
 
-1. **Login** — run `/specs-login` in Claude Code (Azure CLI or API key)
+1. **Login** — run `/awolve-spec:login` in Claude Code (Azure CLI or API key)
 2. **Configure project** — create `.claude/specs.md` (shared) or `.claude/specs.local.md` (personal override):
 
 ```yaml
@@ -42,28 +42,47 @@ projects:
 
 ## Commands
 
-| Command | What |
-|---------|------|
-| `/specs-pull` | Pull latest spec files |
-| `/specs-login` | Authenticate (Azure CLI or API key) |
-| `/specs-status` | Show sync status |
-| `/specs-create-feature` | Create a new feature |
-| `/specs-create-doc` | Add a document to a feature |
-| `/specs-list-features` | List features in a project |
-| `/specs-set-status` | Change feature or document status |
-| `/specs-rename-feature` | Rename a feature |
-| `/specs-rename-doc` | Rename a document |
-| `/specs-delete-feature` | Delete a feature and all documents |
-| `/specs-delete-doc` | Delete a document |
-| `/spec requirements` | Write requirements.md for a feature |
-| `/spec design` | Write design.md for a feature |
-| `/spec infra` | Enrich design.md with infrastructure details |
-| `/spec plan` | Write plan.md — implementation breakdown |
-| `/retro-spec` | Document work after the fact |
-| `/bugs` | List open bugs |
-| `/bug` | Report a bug |
-| `/backlog` | List backlog items |
-| `/backlog-add` | Add a backlog item |
+Run `/awolve-spec:help` for the full list, or see below:
+
+### Setup & Sync
+
+| Command | Description |
+|---------|-------------|
+| `/awolve-spec:login` | Authenticate (Azure CLI or API key) |
+| `/awolve-spec:status` | Show sync status and auth info |
+| `/awolve-spec:pull` | Pull latest spec files |
+
+### Spec Writing
+
+| Command | Description |
+|---------|-------------|
+| `/awolve-spec:req` | Write requirements.md — what to build and why |
+| `/awolve-spec:design` | Write design.md — how to build it |
+| `/awolve-spec:plan` | Write plan.md — implementation approach and task breakdown |
+| `/awolve-spec:infra` | Enrich design.md with infrastructure specifications |
+| `/awolve-spec:retro` | Document work after the fact from what was built |
+
+### Features & Documents
+
+| Command | Description |
+|---------|-------------|
+| `/awolve-spec:list-features` | List all features in a project |
+| `/awolve-spec:create-feature` | Create a new feature |
+| `/awolve-spec:rename-feature` | Rename a feature |
+| `/awolve-spec:delete-feature` | Delete a feature and all its documents |
+| `/awolve-spec:create-doc` | Add a document to an existing feature |
+| `/awolve-spec:rename-doc` | Rename a document |
+| `/awolve-spec:delete-doc` | Delete a document |
+| `/awolve-spec:set-status` | Change feature or document status |
+
+### Backlog & Bugs
+
+| Command | Description |
+|---------|-------------|
+| `/awolve-spec:backlog` | List backlog items |
+| `/awolve-spec:backlog-add` | Add a new idea or feature request |
+| `/awolve-spec:bugs` | List open bugs |
+| `/awolve-spec:bug` | Report a new bug |
 
 ## How it works
 
