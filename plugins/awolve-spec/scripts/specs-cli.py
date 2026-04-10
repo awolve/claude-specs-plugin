@@ -37,6 +37,9 @@ Usage:
                                        — Save current file as a named version
     specs-cli.py service-status        — Check spec service health
     specs-cli.py post-tool-use         — Hook: read tool use JSON from stdin, push if spec
+    specs-cli.py attach <file-path> [<project-id>/<feature-name>]
+                                       — Upload a binary file as an attachment to a feature
+                                         (if no feature id given, inferred from file path)
     specs-cli.py --help                — Show this help
 """
 
@@ -583,7 +586,8 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
 
     manifest = json.loads(body)
     documents = manifest.get("documents", [])
-    if not documents:
+    remote_attachments = manifest.get("attachments", [])
+    if not documents and not remote_attachments:
         return 0, 0
 
     os.makedirs(specs_path, exist_ok=True)
@@ -655,6 +659,51 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         with open(local_path, "w", encoding="utf-8") as f:
             f.write(render_frontmatter(meta, dl_body))
         synced += 1
+
+    # Binary attachments — mirror the blob storage contents into each feature folder.
+    # Dedup is by (filename, size) since binaries don't carry frontmatter. This means
+    # we'll re-download if someone changes a file with the exact same size locally,
+    # but that's rare enough to accept in v1.
+    for att in remote_attachments:
+        att_id = att.get("id")
+        feature_name = att.get("feature")
+        filename = att.get("filename")
+        size = att.get("size_bytes", 0)
+        if not att_id or not feature_name or not filename:
+            continue
+
+        local_dir = os.path.join(specs_path, feature_name)
+        local_path = os.path.join(local_dir, filename)
+
+        # Skip if already present with matching size
+        if os.path.isfile(local_path):
+            try:
+                if os.path.getsize(local_path) == size:
+                    skipped += 1
+                    continue
+            except OSError:
+                pass
+
+        # Download as binary
+        dl_url = f"{service_url}/api/sync/attachments/{att_id}"
+        try:
+            req = urllib.request.Request(dl_url, headers=headers, method="GET")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                content = resp.read()
+        except (urllib.error.HTTPError, urllib.error.URLError, ConnectionError) as e:
+            if not quiet:
+                print(f"specs: attachment download failed for '{filename}' — {e}", file=sys.stderr)
+            continue
+
+        os.makedirs(local_dir, exist_ok=True)
+        try:
+            with open(local_path, "wb") as f:
+                f.write(content)
+            synced += 1
+        except OSError as e:
+            if not quiet:
+                print(f"specs: failed to write attachment '{local_path}' — {e}", file=sys.stderr)
+            continue
 
     return synced, skipped
 
@@ -1732,6 +1781,169 @@ def list_features(project_id):
 
 
 # ---------------------------------------------------------------------------
+# Attachments
+# ---------------------------------------------------------------------------
+
+def _build_multipart(entity_type, entity_id, file_path):
+    """Build a multipart/form-data body for attachment upload.
+
+    Returns (content_type, body_bytes).
+    """
+    import mimetypes
+    import uuid
+    filename = os.path.basename(file_path)
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+    mime, _ = mimetypes.guess_type(filename)
+    if not mime:
+        mime = "application/octet-stream"
+
+    boundary = f"----awolve-spec-{uuid.uuid4().hex}"
+    crlf = b"\r\n"
+    parts = []
+
+    def add_field(name, value):
+        parts.append(f"--{boundary}".encode())
+        parts.append(f'Content-Disposition: form-data; name="{name}"'.encode())
+        parts.append(b"")
+        parts.append(value.encode() if isinstance(value, str) else value)
+
+    add_field("entityType", entity_type)
+    add_field("entityId", entity_id)
+
+    parts.append(f"--{boundary}".encode())
+    parts.append(
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"'.encode()
+    )
+    parts.append(f"Content-Type: {mime}".encode())
+    parts.append(b"")
+    parts.append(file_bytes)
+
+    parts.append(f"--{boundary}--".encode())
+    parts.append(b"")
+
+    body = crlf.join(parts)
+    content_type = f"multipart/form-data; boundary={boundary}"
+    return content_type, body
+
+
+def attach_file(file_path, feature_identifier=None):
+    """Upload a local file as a binary attachment to a feature.
+
+    If feature_identifier is None, infer the feature from the file path
+    (file must live inside a configured specs directory).
+    """
+    if not os.path.isfile(file_path):
+        print(f"specs: file not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found — run /awolve-spec:login", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    # Resolve the target feature
+    if feature_identifier:
+        # Expect "project-id/feature-name"
+        if "/" not in feature_identifier:
+            print(
+                f"specs: feature identifier must be 'project-id/feature-name', got: {feature_identifier}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        project_id, feature_name = feature_identifier.split("/", 1)
+    else:
+        # Infer from file path — find matching project and feature folder
+        abs_file = os.path.abspath(file_path)
+        proj = config.find_project_for_file(cfg, abs_file)
+        if not proj:
+            print(
+                f"specs: {file_path} is not inside any configured specs directory — pass <project-id>/<feature-name> explicitly",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        project_id = proj["id"]
+        # Feature is the first path component under the specs path
+        specs_path = os.path.abspath(proj["path"])
+        rel = os.path.relpath(abs_file, specs_path)
+        parts = rel.split(os.sep)
+        if len(parts) < 2:
+            print(
+                f"specs: {file_path} must be inside a feature folder (e.g. 001-my-feature/)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        feature_name = parts[0]
+
+    # Look up feature id from the service
+    list_url = f"{service_url}/api/portal/projects/{project_id}/features"
+    try:
+        status, body = api_request(list_url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: {e}", file=sys.stderr)
+        sys.exit(1)
+    if status != 200:
+        print(f"specs: failed to list features (HTTP {status})", file=sys.stderr)
+        sys.exit(1)
+
+    features_list = json.loads(body)
+    feature = None
+    for f in features_list:
+        if f.get("name") == feature_name or f.get("id", "").endswith(f"/{feature_name}"):
+            feature = f
+            break
+    if not feature:
+        print(f"specs: feature '{feature_name}' not found in project '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    feature_id = feature["id"]
+    content_type, body_bytes = _build_multipart("feature", feature_id, file_path)
+
+    upload_url = f"{service_url}/api/portal/attachments"
+    upload_headers = dict(headers)
+    upload_headers["Content-Type"] = content_type
+    upload_headers["Content-Length"] = str(len(body_bytes))
+
+    req = urllib.request.Request(upload_url, data=body_bytes, headers=upload_headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            resp_body = resp.read().decode("utf-8")
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        msg = ""
+        try:
+            msg = e.read().decode("utf-8")[:200]
+        except Exception:
+            pass
+        print(f"specs: upload failed (HTTP {e.code}): {msg}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"specs: upload failed — {e.reason}", file=sys.stderr)
+        sys.exit(1)
+
+    if status not in (200, 201):
+        print(f"specs: upload failed (HTTP {status}): {resp_body[:200]}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        att = json.loads(resp_body)
+    except json.JSONDecodeError:
+        att = {}
+
+    print(f"specs: uploaded '{os.path.basename(file_path)}' to {project_id}/{feature_name}")
+    if att.get("id"):
+        print(f"  id: {att['id']}")
+        print(f"  size: {att.get('sizeBytes', '?')} bytes")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1889,6 +2101,17 @@ def main():
         service_status()
     elif cmd == "post-tool-use":
         handle_post_tool_use()
+    elif cmd == "attach":
+        if len(args) < 2:
+            print(
+                "Usage: specs-cli.py attach <file-path> [<project-id>/<feature-name>]\n"
+                "  If the feature identifier is omitted, it is inferred from the file path.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        file_path = args[1]
+        feature_id = args[2] if len(args) >= 3 else None
+        attach_file(file_path, feature_id)
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
         sys.exit(1)

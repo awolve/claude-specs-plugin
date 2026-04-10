@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 — 2026-04-10
+- **Binary attachments**. Completes the filesystem-sync half of the spec-service file upload feature (service side shipped in spec-service 0.13.0).
+  - `pull` now also downloads feature attachments to the local feature folder alongside .md docs. Deduped by `(filename, size)` — re-downloads on size mismatch, skips otherwise.
+  - New `attach` command and `/awolve-spec:attach` slash command for uploading a local binary file (image, PDF, Excel, etc.) to a feature. Feature is inferred from the file path if not specified explicitly.
+  - Multipart upload built inline (no third-party deps) so the CLI stays stdlib-only.
+- Requires spec-service v0.13.0 or later (earlier versions will reject the attachment API calls).
+
 ## 0.10.9 — 2026-04-02
 - UX: API key login reads from clipboard (`--from-clipboard`) — copy key, run command, done
 - Validates key starts with `sk_` before calling service
