@@ -3,7 +3,14 @@
 Specs CLI — sync, review, and manage spec documents.
 
 Usage:
-    specs-cli.py pull [project-id]     — Pull latest specs (all projects, or specific one)
+    specs-cli.py pull [project-id] [--prune|--keep] [--force-full]
+                                       — Pull latest specs (all projects, or specific one)
+                                         --prune        permanently delete orphaned local files
+                                         --keep         leave orphans alone (no trash)
+                                         --force-full   bypass delta sync, always fetch manifest
+    specs-cli.py log <project-id> [--since DUR] [--author EMAIL] [--entity TYPE]
+                                       [--limit N] [--json] [--since-last-visit] [--mark-read]
+                                       — Stream audit events for a project
     specs-cli.py push <file_path>      — Push a single spec file
     specs-cli.py status                — Show sync status of local spec files
     specs-cli.py set-status <id> <status> — Set feature or document status
@@ -46,11 +53,15 @@ Usage:
 import hashlib
 import json
 import os
+import random
 import re
+import shutil
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # Add scripts dir to path for sibling imports
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -139,7 +150,19 @@ def file_content_hash(content):
 # ---------------------------------------------------------------------------
 
 def api_request(url, method="GET", headers=None, data=None):
-    """Make an HTTP request. Returns (status_code, response_body_str)."""
+    """Make an HTTP request with transient-failure retries.
+
+    Returns (status_code, response_body_str).
+
+    Retry policy (spec 010 phase 3b):
+    - GET: retry on ConnectionError and 502/503/504, up to 3 attempts total.
+      Backoff 0.5s → 1s → 2s with ±25% jitter.
+    - PUT/POST/PATCH/DELETE: retry on ConnectionError only, once, and only
+      if the error happened *before* the request was sent. After the server
+      has returned any status code we trust it and do not retry.
+    - 409 Conflict and 401 Unauthorized are never retried — they're semantic
+      signals the caller needs to handle.
+    """
     headers = headers or {}
     headers.setdefault("User-Agent", "awolve-specs-plugin/1.0.0")
 
@@ -152,19 +175,167 @@ def api_request(url, method="GET", headers=None, data=None):
             body_bytes = json.dumps(data).encode("utf-8")
             headers.setdefault("Content-Type", "application/json")
 
-    req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.status, resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        body = ""
+    is_get = method.upper() == "GET"
+    max_attempts = 3 if is_get else 2
+    backoff_base = 0.5
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
         try:
-            body = e.read().decode("utf-8")
-        except Exception:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status, resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            # Only retry GETs on 502/503/504, and only if attempts remain.
+            if is_get and e.code in (502, 503, 504) and attempt + 1 < max_attempts:
+                _sleep_with_jitter(backoff_base * (2 ** attempt))
+                continue
+            return e.code, body
+        except urllib.error.URLError as e:
+            last_exc = ConnectionError(f"Network error: {e.reason}")
+            # URLError before we got any response — safe to retry for both
+            # GET and mutating methods (the request was never accepted).
+            if attempt + 1 < max_attempts:
+                _sleep_with_jitter(backoff_base * (2 ** attempt))
+                continue
+            raise last_exc from e
+
+    # Unreachable, but keeps mypy happy
+    raise last_exc or ConnectionError("Network error (no attempts made)")
+
+
+def _sleep_with_jitter(base_seconds):
+    """Sleep for `base_seconds` ± 25% jitter. Used by the retry backoff."""
+    jitter = base_seconds * 0.25
+    time.sleep(max(0.05, base_seconds + random.uniform(-jitter, jitter)))
+
+
+# ---------------------------------------------------------------------------
+# Atomic file writes (spec 010 phase 3b)
+# ---------------------------------------------------------------------------
+
+def atomic_write(path, content, binary=False):
+    """Write `content` to `path` atomically: tempfile → fsync → os.replace.
+
+    Prevents half-written files if the process crashes or the disk fills up
+    mid-write. The tempfile is created in the same directory as the target
+    so the final `os.replace` is a same-filesystem rename (atomic on POSIX
+    and modern Windows).
+    """
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    mode = "wb" if binary else "w"
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=d)
+    try:
+        if binary:
+            os.close(fd)
+            with open(tmp, mode) as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+        else:
+            with os.fdopen(fd, mode, encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
             pass
-        return e.code, body
-    except urllib.error.URLError as e:
-        raise ConnectionError(f"Network error: {e.reason}") from e
+        raise
+
+
+# ---------------------------------------------------------------------------
+# State file — per-project sync + visit cursors (spec 010 phase 4)
+# ---------------------------------------------------------------------------
+
+_STATE_FILENAME = "specs.state.json"
+_FULL_SYNC_INTERVAL = timedelta(days=7)
+
+
+def _state_path(project_root):
+    """Return the absolute path to .claude/specs.state.json for a project root."""
+    return os.path.join(project_root, ".claude", _STATE_FILENAME)
+
+
+def state_load(project_root):
+    """Load the state file. Returns a dict; empty if missing or corrupt."""
+    path = _state_path(project_root)
+    if not os.path.isfile(path):
+        return {"version": 1, "projects": {}}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "projects" not in data:
+            return {"version": 1, "projects": {}}
+        return data
+    except (OSError, json.JSONDecodeError):
+        return {"version": 1, "projects": {}}
+
+
+def state_save(project_root, state):
+    """Persist the state file atomically."""
+    path = _state_path(project_root)
+    atomic_write(path, json.dumps(state, indent=2, sort_keys=True))
+
+
+def state_get_project(state, project_id):
+    """Get the state record for a project, creating an empty one if missing."""
+    projects = state.setdefault("projects", {})
+    return projects.setdefault(project_id, {})
+
+
+def state_update_project(state, project_id, **kwargs):
+    """Shallow-merge kwargs into the project's state record."""
+    rec = state_get_project(state, project_id)
+    rec.update(kwargs)
+    return rec
+
+
+def state_needs_full_sync(project_state):
+    """True if the project has never been fully synced or is past the interval."""
+    last = project_state.get("last_full_sync")
+    if not last:
+        return True
+    try:
+        dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - dt) > _FULL_SYNC_INTERVAL
+
+
+# ---------------------------------------------------------------------------
+# Trash — move orphaned local files to .specs-trash/ on pull (spec 010 phase 3b)
+# ---------------------------------------------------------------------------
+
+def trash_move(specs_path, file_path):
+    """Move a file into .specs-trash/YYYY-MM-DD/ relative to specs_path.
+
+    Collisions get a numeric suffix (foo-1.md, foo-2.md, ...) so nothing in
+    the trash is ever overwritten.
+    """
+    rel = os.path.relpath(file_path, specs_path)
+    today = datetime.now().strftime("%Y-%m-%d")
+    trash_dir = os.path.join(specs_path, ".specs-trash", today, os.path.dirname(rel))
+    os.makedirs(trash_dir, exist_ok=True)
+    base = os.path.basename(rel)
+    target = os.path.join(trash_dir, base)
+    # Collision suffix
+    if os.path.exists(target):
+        stem, ext = os.path.splitext(base)
+        n = 1
+        while os.path.exists(os.path.join(trash_dir, f"{stem}-{n}{ext}")):
+            n += 1
+        target = os.path.join(trash_dir, f"{stem}-{n}{ext}")
+    shutil.move(file_path, target)
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -561,38 +732,105 @@ def service_status():
 # Pull (single project)
 # ---------------------------------------------------------------------------
 
-def pull_project(project_id, specs_path, service_url, headers, quiet=False):
-    """Pull specs for a single project. Returns (synced_count, skipped_count)."""
+def _scan_local_specs(specs_path):
+    """Walk a specs directory and index existing files by spec_doc_id.
+
+    Returns a dict: { doc_id: absolute_path }. Files without a spec_doc_id
+    in their frontmatter are skipped — they're either draft specs not yet
+    registered with the service, or unrelated markdown.
+    """
+    index = {}
+    if not os.path.isdir(specs_path):
+        return index
+    for root, dirs, files in os.walk(specs_path):
+        # Never recurse into the trash
+        if ".specs-trash" in dirs:
+            dirs.remove(".specs-trash")
+        for fname in files:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read(4096)
+            except (IOError, OSError):
+                continue
+            meta, _ = parse_frontmatter(content)
+            doc_id = meta.get("spec_doc_id")
+            if doc_id:
+                index[doc_id] = fpath
+    return index
+
+
+def pull_project(
+    project_id,
+    specs_path,
+    service_url,
+    headers,
+    state=None,
+    delete_mode="trash",
+    force_full=False,
+    quiet=False,
+):
+    """Pull specs for a single project.
+
+    Returns a dict with counts and outcomes:
+        {
+            "synced": int,          # files written (new or updated)
+            "unchanged": int,       # hash matched, possibly frontmatter retouched
+            "trashed": int,         # local files orphaned by remote deletion
+            "conflicts": list[str], # paths where .remote sidecar was written
+            "skipped_errors": int,  # transient failures mid-pull
+            "cursor": str | None,   # advanced if the manifest returned one
+        }
+
+    Parameters (spec 010 phase 3b + 4):
+      state        — the loaded state dict (from state_load); mutated in place
+                     to record last_sync_cursor and last_full_sync. Pass None
+                     to skip state management.
+      delete_mode  — "trash" (default), "prune" (hard delete), or "keep"
+                     (leave orphans alone)
+      force_full   — bypass delta sync and always fetch the full manifest
+    """
+    report = {
+        "synced": 0,
+        "unchanged": 0,
+        "trashed": 0,
+        "conflicts": [],
+        "skipped_errors": 0,
+        "cursor": None,
+    }
+
     manifest_url = f"{service_url}/api/sync/projects/{project_id}/manifest"
     try:
         status, body = api_request(manifest_url, headers=headers)
     except ConnectionError as e:
         if not quiet:
             print(f"specs: pull failed for '{project_id}' — {e}", file=sys.stderr)
-        return 0, 0
+        return report
 
     if status == 401:
         if not quiet:
             print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
-        return 0, 0
+        return report
     if status == 404:
         if not quiet:
             print(f"specs: project '{project_id}' not found", file=sys.stderr)
-        return 0, 0
+        return report
     if status != 200:
         if not quiet:
             print(f"specs: manifest failed for '{project_id}' (HTTP {status})", file=sys.stderr)
-        return 0, 0
+        return report
 
     manifest = json.loads(body)
     documents = manifest.get("documents", [])
     remote_attachments = manifest.get("attachments", [])
-    if not documents and not remote_attachments:
-        return 0, 0
+    manifest_cursor = manifest.get("cursor")
 
     os.makedirs(specs_path, exist_ok=True)
-    synced = 0
-    skipped = 0
+
+    # Index remote doc ids so we can find local orphans at the end.
+    remote_doc_ids = {doc["id"] for doc in documents}
 
     for doc in documents:
         doc_id = doc["id"]
@@ -607,7 +845,7 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         local_dir = os.path.join(specs_path, feature_name)
         local_path = os.path.join(local_dir, filename)
 
-        # Check if local file has same content hash
+        # ---- Hash-match fast path ----
         if os.path.isfile(local_path):
             try:
                 with open(local_path, "r", encoding="utf-8") as f:
@@ -616,37 +854,74 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
                 if local_hash == remote_hash:
                     # Content matches — update frontmatter if version/status drifted
                     local_meta, local_body = parse_frontmatter(local_content)
-                    if local_meta.get("spec_version") != version or \
-                       local_meta.get("feature_status", "") != feature_status or \
-                       local_meta.get("doc_status", "") != doc_status:
+                    if (local_meta.get("spec_version") != version or
+                        local_meta.get("feature_status", "") != feature_status or
+                        local_meta.get("doc_status", "") != doc_status or
+                        local_meta.get("last_synced_hash") != remote_hash):
                         local_meta["spec_version"] = version
+                        local_meta["last_synced_hash"] = remote_hash
                         if feature_status:
                             local_meta["feature_status"] = feature_status
                         if doc_status:
                             local_meta["doc_status"] = doc_status
-                        with open(local_path, "w", encoding="utf-8") as fw:
-                            fw.write(render_frontmatter(local_meta, local_body))
-                    skipped += 1
+                        atomic_write(local_path, render_frontmatter(local_meta, local_body))
+                    report["unchanged"] += 1
+                    continue
+
+                # ---- Hash mismatch: check for local drift before overwriting ----
+                local_meta, _ = parse_frontmatter(local_content)
+                last_synced_hash = local_meta.get("last_synced_hash")
+                if last_synced_hash and last_synced_hash != local_hash:
+                    # Local was modified since last sync AND remote has also
+                    # changed. Write remote to .remote sidecar, leave local
+                    # alone, report the conflict.
+                    sidecar = local_path + ".remote"
+                    content_url = f"{service_url}/api/sync/documents/{doc_id}/content"
+                    try:
+                        dl_status, dl_body = api_request(content_url, headers=headers)
+                    except ConnectionError:
+                        report["skipped_errors"] += 1
+                        continue
+                    if dl_status != 200:
+                        report["skipped_errors"] += 1
+                        continue
+                    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    sidecar_meta = {
+                        "spec_version": version,
+                        "spec_doc_id": doc_id,
+                        "last_synced": now,
+                        "last_synced_hash": remote_hash,
+                    }
+                    if feature_status:
+                        sidecar_meta["feature_status"] = feature_status
+                    if doc_status:
+                        sidecar_meta["doc_status"] = doc_status
+                    if source_url:
+                        sidecar_meta["source"] = source_url
+                    atomic_write(sidecar, render_frontmatter(sidecar_meta, dl_body))
+                    report["conflicts"].append(local_path)
                     continue
             except (IOError, OSError):
                 pass
 
-        # Download
+        # ---- Download + write (new file or remote-newer, no local drift) ----
         content_url = f"{service_url}/api/sync/documents/{doc_id}/content"
         try:
             dl_status, dl_body = api_request(content_url, headers=headers)
         except ConnectionError:
+            report["skipped_errors"] += 1
             continue
 
         if dl_status != 200:
+            report["skipped_errors"] += 1
             continue
 
-        # Write with frontmatter
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         meta = {
             "spec_version": version,
             "spec_doc_id": doc_id,
             "last_synced": now,
+            "last_synced_hash": remote_hash,
         }
         if feature_status:
             meta["feature_status"] = feature_status
@@ -655,15 +930,10 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         if source_url:
             meta["source"] = source_url
 
-        os.makedirs(local_dir, exist_ok=True)
-        with open(local_path, "w", encoding="utf-8") as f:
-            f.write(render_frontmatter(meta, dl_body))
-        synced += 1
+        atomic_write(local_path, render_frontmatter(meta, dl_body))
+        report["synced"] += 1
 
-    # Binary attachments — mirror the blob storage contents into each feature folder.
-    # Dedup is by (filename, size) since binaries don't carry frontmatter. This means
-    # we'll re-download if someone changes a file with the exact same size locally,
-    # but that's rare enough to accept in v1.
+    # ---- Binary attachments ----
     for att in remote_attachments:
         att_id = att.get("id")
         feature_name = att.get("feature")
@@ -675,16 +945,14 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         local_dir = os.path.join(specs_path, feature_name)
         local_path = os.path.join(local_dir, filename)
 
-        # Skip if already present with matching size
         if os.path.isfile(local_path):
             try:
                 if os.path.getsize(local_path) == size:
-                    skipped += 1
+                    report["unchanged"] += 1
                     continue
             except OSError:
                 pass
 
-        # Download as binary
         dl_url = f"{service_url}/api/sync/attachments/{att_id}"
         try:
             req = urllib.request.Request(dl_url, headers=headers, method="GET")
@@ -693,31 +961,61 @@ def pull_project(project_id, specs_path, service_url, headers, quiet=False):
         except (urllib.error.HTTPError, urllib.error.URLError, ConnectionError) as e:
             if not quiet:
                 print(f"specs: attachment download failed for '{filename}' — {e}", file=sys.stderr)
+            report["skipped_errors"] += 1
             continue
 
-        os.makedirs(local_dir, exist_ok=True)
         try:
-            with open(local_path, "wb") as f:
-                f.write(content)
-            synced += 1
+            atomic_write(local_path, content, binary=True)
+            report["synced"] += 1
         except OSError as e:
             if not quiet:
                 print(f"specs: failed to write attachment '{local_path}' — {e}", file=sys.stderr)
+            report["skipped_errors"] += 1
             continue
 
-    return synced, skipped
+    # ---- Deletion handling: trash / prune / keep ----
+    if delete_mode != "keep":
+        local_index = _scan_local_specs(specs_path)
+        for doc_id, local_path in local_index.items():
+            if doc_id in remote_doc_ids:
+                continue
+            # Orphan — not in remote manifest
+            try:
+                if delete_mode == "prune":
+                    os.unlink(local_path)
+                else:
+                    trash_move(specs_path, local_path)
+                report["trashed"] += 1
+            except OSError as e:
+                if not quiet:
+                    print(f"specs: could not {delete_mode} orphan '{local_path}' — {e}", file=sys.stderr)
+
+    # ---- Advance sync cursor + full-sync timestamp ----
+    if manifest_cursor:
+        report["cursor"] = manifest_cursor
+        if state is not None:
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            state_update_project(
+                state,
+                project_id,
+                last_sync_cursor=manifest_cursor,
+                last_full_sync=now_iso,
+                last_pulled_at=now_iso,
+            )
+
+    return report
 
 
 # ---------------------------------------------------------------------------
 # Pull (all projects)
 # ---------------------------------------------------------------------------
 
-def pull(project_filter=None, quiet=False):
+def pull(project_filter=None, quiet=False, delete_mode="trash", force_full=False):
     """Pull specs for all configured projects (or a specific one)."""
     cfg = config.read_config()
     if not cfg:
         if not quiet:
-            print("specs: no config found — create .claude/specs.md or .claude/specs.local.md — create .claude/specs.md (shared) or .claude/specs.local.md (personal)", file=sys.stderr)
+            print("specs: no config found — create .claude/specs.md or .claude/specs.local.md", file=sys.stderr)
         sys.exit(1)
 
     headers = auth.get_headers()
@@ -728,6 +1026,7 @@ def pull(project_filter=None, quiet=False):
 
     service_url = cfg["service_url"]
     projects = cfg["projects"]
+    project_root = cfg["project_root"]
 
     if project_filter:
         projects = [p for p in projects if p["id"] == project_filter]
@@ -735,24 +1034,304 @@ def pull(project_filter=None, quiet=False):
             print(f"specs: project '{project_filter}' not in config", file=sys.stderr)
             sys.exit(1)
 
+    # Load the sync state file once; pull_project mutates it per project.
+    state = state_load(project_root)
+
     total_synced = 0
-    total_skipped = 0
+    total_unchanged = 0
+    total_trashed = 0
+    total_conflicts = []
+    total_errors = 0
 
     for proj in projects:
-        synced, skipped = pull_project(proj["id"], proj["path"], service_url, headers, quiet)
-        total_synced += synced
-        total_skipped += skipped
+        report = pull_project(
+            proj["id"], proj["path"], service_url, headers,
+            state=state,
+            delete_mode=delete_mode,
+            force_full=force_full,
+            quiet=quiet,
+        )
+        total_synced += report["synced"]
+        total_unchanged += report["unchanged"]
+        total_trashed += report["trashed"]
+        total_conflicts.extend(report["conflicts"])
+        total_errors += report["skipped_errors"]
 
-        if not quiet and (synced or skipped):
+        if not quiet:
             parts = []
-            if synced:
-                parts.append(f"{synced} updated")
-            if skipped:
-                parts.append(f"{skipped} unchanged")
-            print(f"specs: {proj['id']} — {', '.join(parts)}")
+            if report["synced"]:
+                parts.append(f"{report['synced']} updated")
+            if report["unchanged"]:
+                parts.append(f"{report['unchanged']} unchanged")
+            if report["trashed"]:
+                label = "pruned" if delete_mode == "prune" else "trashed"
+                parts.append(f"{report['trashed']} {label}")
+            if report["conflicts"]:
+                parts.append(f"{len(report['conflicts'])} conflict{'s' if len(report['conflicts']) != 1 else ''}")
+            if report["skipped_errors"]:
+                parts.append(f"{report['skipped_errors']} errors")
+            if parts:
+                print(f"specs: {proj['id']} — {', '.join(parts)}")
 
-    if not quiet and total_synced == 0 and total_skipped == 0:
-        print(f"specs: pulled {len(projects)} project(s) — no files")
+    # Persist state after all projects processed so partial failures don't
+    # leave a stale cursor (we still advance per-project in pull_project).
+    try:
+        state_save(project_root, state)
+    except OSError as e:
+        if not quiet:
+            print(f"specs: warning — failed to save state: {e}", file=sys.stderr)
+
+    if not quiet:
+        if total_conflicts:
+            print()
+            print(f"specs: {len(total_conflicts)} conflict{'s' if len(total_conflicts) != 1 else ''} — local drift + remote change:", file=sys.stderr)
+            for path in total_conflicts:
+                print(f"  {path}  ({path}.remote written alongside)", file=sys.stderr)
+            print("  Review .remote files, reconcile manually, delete .remote files, then push.", file=sys.stderr)
+        if total_synced == 0 and total_unchanged == 0 and total_trashed == 0 and not total_conflicts:
+            print(f"specs: pulled {len(projects)} project(s) — no changes")
+
+
+# ---------------------------------------------------------------------------
+# Log — stream audit events for a project (spec 010 phase 4)
+# ---------------------------------------------------------------------------
+
+_ENTITY_BADGES = {
+    "feature":        ("feat",   "\033[35m"),
+    "document":       ("doc",    "\033[34m"),
+    "version":        ("ver",    "\033[32m"),
+    "comment":        ("cmt",    "\033[33m"),
+    "review":         ("rev",    "\033[95m"),
+    "backlog":        ("bklg",   "\033[36m"),
+    "bug":            ("bug",    "\033[31m"),
+    "bug_comment":    ("bug·c",  "\033[31m"),
+    "attachment":     ("att",    "\033[37m"),
+    "project":        ("proj",   "\033[96m"),
+    "project_access": ("access", "\033[91m"),
+    "project_domain": ("domain", "\033[92m"),
+    "client":         ("client", "\033[35m"),
+    "portal_user":    ("user",   "\033[95m"),
+    "api_key":        ("key",    "\033[33m"),
+    "auth_token":     ("token",  "\033[33m"),
+    "system":         ("sys",    "\033[90m"),
+}
+_RESET = "\033[0m"
+_DIM = "\033[2m"
+_BOLD = "\033[1m"
+
+
+def _parse_since(since_str):
+    """Parse '--since' into a duration or absolute date.
+
+    Accepts:
+      '7d', '24h', '30m'  — durations relative to now
+      '2026-04-01'         — absolute ISO date
+
+    Returns a datetime in UTC, or None if the string can't be parsed.
+    """
+    if not since_str:
+        return None
+    s = since_str.strip()
+    # Duration: Nd, Nh, Nm, Nw
+    m = re.match(r"^(\d+)([smhdw])$", s)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta = {
+            "s": timedelta(seconds=n),
+            "m": timedelta(minutes=n),
+            "h": timedelta(hours=n),
+            "d": timedelta(days=n),
+            "w": timedelta(weeks=n),
+        }[unit]
+        return datetime.now(timezone.utc) - delta
+    # Absolute ISO date/datetime
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def _relative_time(iso_str):
+    """Relative time for log display — e.g. '3m ago', '2h ago', '5d ago'."""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except ValueError:
+        return iso_str
+    diff = datetime.now(timezone.utc) - dt
+    secs = int(diff.total_seconds())
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    if secs < 86400 * 7:
+        return f"{secs // 86400}d ago"
+    return dt.strftime("%Y-%m-%d")
+
+
+def specs_log(
+    project_id,
+    since=None,
+    author=None,
+    entity_type=None,
+    limit=50,
+    as_json=False,
+    since_last_visit=False,
+    mark_read=False,
+):
+    """Stream audit events for a project. `specs log <project> [...flags]`."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found — create .claude/specs.md or .claude/specs.local.md", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    # Verify project is configured
+    if not any(p["id"] == project_id for p in cfg["projects"]):
+        print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    project_root = cfg["project_root"]
+    state = state_load(project_root)
+    proj_state = state_get_project(state, project_id)
+
+    # Build query params
+    qs = {"limit": str(min(max(limit, 1), 1000))}
+
+    if since_last_visit:
+        cursor = proj_state.get("last_visit_cursor")
+        if cursor:
+            qs["since"] = cursor
+        # Skip the user's own events for "since last visit" — they already know
+        current_actor = headers.get("X-Actor") or _current_user_email(headers)
+        if current_actor:
+            qs["actor_not"] = current_actor
+        qs["order"] = "asc"  # chronological so we can determine the newest event id
+    else:
+        qs["order"] = "desc"  # default: recent first
+        since_dt = _parse_since(since)
+        if since_dt and not since_last_visit:
+            # No direct timestamp filter — we'll filter client-side below.
+            # (The server endpoint uses event ids for cursors, not timestamps,
+            # so --since is a display convenience.)
+            pass
+
+    if author:
+        qs["actor"] = author
+    if entity_type:
+        qs["entity_type"] = entity_type
+
+    from urllib.parse import urlencode
+    url = f"{service_url}/api/sync/projects/{project_id}/changes?{urlencode(qs)}"
+
+    try:
+        status, body = api_request(url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: log failed — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status == 401:
+        print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
+        sys.exit(1)
+    if status != 200:
+        print(f"specs: log failed (HTTP {status}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    data = json.loads(body)
+    events = data.get("events", [])
+
+    # Client-side --since filter if needed
+    since_dt = _parse_since(since)
+    if since_dt:
+        events = [
+            e for e in events
+            if _parse_iso(e.get("createdAt", "")) and _parse_iso(e["createdAt"]) >= since_dt
+        ]
+
+    if as_json:
+        print(json.dumps(events, indent=2))
+    else:
+        _print_log_events(events, since_last_visit=since_last_visit)
+
+    # --mark-read: advance the visit cursor to the newest event shown
+    if mark_read and events:
+        # When order=asc, the newest is last; when desc, it's first
+        newest_id = events[-1]["id"] if qs.get("order") == "asc" else events[0]["id"]
+        state_update_project(state, project_id, last_visit_cursor=newest_id)
+        try:
+            state_save(project_root, state)
+            print(f"\nspecs: marked read up to {newest_id}", file=sys.stderr)
+        except OSError as e:
+            print(f"specs: warning — failed to save state: {e}", file=sys.stderr)
+
+
+def _print_log_events(events, since_last_visit=False):
+    """Render log events in human-readable colored output."""
+    if not events:
+        if since_last_visit:
+            print("(no new events since your last visit)")
+        else:
+            print("(no events)")
+        return
+
+    # Group by day
+    last_day = None
+    for ev in events:
+        try:
+            dt = datetime.fromisoformat(ev["createdAt"].replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        day = dt.strftime("%Y-%m-%d")
+        if day != last_day:
+            if last_day is not None:
+                print()
+            print(f"{_BOLD}{day}{_RESET}")
+            last_day = day
+
+        badge_label, badge_color = _ENTITY_BADGES.get(
+            ev["entityType"], (ev["entityType"][:6], "\033[37m"),
+        )
+        time_str = dt.strftime("%H:%M")
+        relative = _relative_time(ev["createdAt"])
+        print(
+            f"  {_DIM}{time_str}{_RESET}  "
+            f"{badge_color}{badge_label:>8}{_RESET}  "
+            f"{ev['summary']}  "
+            f"{_DIM}— {ev['actor']} · {relative}{_RESET}"
+        )
+
+
+def _parse_iso(s):
+    """Parse an ISO timestamp, returning None on failure."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _current_user_email(headers):
+    """Best-effort lookup of the current user's email from the auth state.
+
+    Used by `--since-last-visit` to set actor_not. Falls back to None if we
+    can't determine it — in which case the user will see their own events
+    in the feed, but nothing breaks.
+    """
+    try:
+        return auth.get_current_user_email()  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -832,9 +1411,12 @@ def push(file_path):
     new_version = resp_data.get("version", base_version + 1)
     meta["spec_version"] = new_version
     meta["last_synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Record the body hash we just pushed so future pulls can detect local
+    # drift correctly. Without this, a subsequent manual edit would look
+    # indistinguishable from an unmodified synced file.
+    meta["last_synced_hash"] = hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
 
-    with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(render_frontmatter(meta, body))
+    atomic_write(abs_path, render_frontmatter(meta, body))
 
     rel = os.path.relpath(abs_path, proj["path"])
     print(f"specs: pushed {proj['id']}/{rel} (v{new_version})")
@@ -1959,11 +2541,66 @@ def main():
 
     if cmd == "pull":
         project_filter = None
+        delete_mode = "trash"
+        force_full = False
         for a in args[1:]:
-            if not a.startswith("-"):
+            if a == "--prune":
+                delete_mode = "prune"
+            elif a == "--keep":
+                delete_mode = "keep"
+            elif a == "--force-full":
+                force_full = True
+            elif a == "--quiet":
+                pass
+            elif not a.startswith("-") and project_filter is None:
                 project_filter = a
-                break
-        pull(project_filter=project_filter, quiet=quiet)
+        pull(project_filter=project_filter, quiet=quiet, delete_mode=delete_mode, force_full=force_full)
+    elif cmd == "log":
+        if len(args) < 2:
+            print("Usage: specs-cli.py log <project-id> [--since DUR] [--author EMAIL] [--entity TYPE] [--limit N] [--json] [--since-last-visit] [--mark-read]", file=sys.stderr)
+            sys.exit(1)
+        project_id = args[1]
+        since_arg = None
+        author_arg = None
+        entity_arg = None
+        limit_arg = 50
+        json_out = False
+        since_last_visit = False
+        mark_read = False
+        i = 2
+        while i < len(args):
+            a = args[i]
+            if a == "--since" and i + 1 < len(args):
+                since_arg = args[i + 1]; i += 2
+            elif a == "--author" and i + 1 < len(args):
+                author_arg = args[i + 1]; i += 2
+            elif a == "--entity" and i + 1 < len(args):
+                entity_arg = args[i + 1]; i += 2
+            elif a == "--limit" and i + 1 < len(args):
+                try:
+                    limit_arg = int(args[i + 1])
+                except ValueError:
+                    print(f"specs: invalid --limit '{args[i + 1]}'", file=sys.stderr)
+                    sys.exit(1)
+                i += 2
+            elif a == "--json":
+                json_out = True; i += 1
+            elif a == "--since-last-visit":
+                since_last_visit = True; i += 1
+            elif a == "--mark-read":
+                mark_read = True; i += 1
+            else:
+                i += 1
+        specs_log(
+            project_id,
+            since=since_arg,
+            author=author_arg,
+            entity_type=entity_arg,
+            limit=limit_arg,
+            as_json=json_out,
+            since_last_visit=since_last_visit,
+            mark_read=mark_read,
+        )
     elif cmd == "push":
         if len(args) < 2:
             print("Usage: specs-cli.py push <file_path>", file=sys.stderr)
