@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.2 — 2026-04-12
+
+- **New slash command `/awolve-spec:update-plugins`** — refreshes the `awolve-open-claude-plugins` marketplace (awolve-spec, awolve-cortex, hookify) and prompts the user to run `/reload-plugins`. Counterpart to `/update-awolve-plugins` (which covers `awolve-marketplace`). `/cortex-update` runs both.
+
 ## 0.14.1 — 2026-04-12
 
 - **`specs log --all`** — query the audit feed across every configured project, merged and sorted by time. Events get a project-id prefix so the output stays legible. Makes "what happened yesterday" answerable without picking a project.
