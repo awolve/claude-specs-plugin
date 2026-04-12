@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.1 — 2026-04-12
+
+- **`specs log --all`** — query the audit feed across every configured project, merged and sorted by time. Events get a project-id prefix so the output stays legible. Makes "what happened yesterday" answerable without picking a project.
+  ```bash
+  specs log --all --since 1d
+  specs log --all --since 7d --author bjorn.allvin@awolve.ai
+  specs log --all --since-last-visit --mark-read   # advances cursor per project
+  ```
+  Works alongside the per-project form — pass either a project id or `--all`, not both.
+- **New slash command `/awolve-spec:log`** — Claude-facing interface to the CLI that maps natural-language questions ("what happened yesterday", "did Michael do anything today", "any new bugs this week") to the right flags, runs the command, and summarizes the output with grouped bullet points per project. Advances the visit cursor when appropriate.
+
 ## 0.14.0 — 2026-04-12
 
 **Robust pull + `specs log` command** (spec 010 phases 3b + 4, plugin side). Companion to spec-service v0.18.0 which shipped the `/changes` and `/history` endpoints.

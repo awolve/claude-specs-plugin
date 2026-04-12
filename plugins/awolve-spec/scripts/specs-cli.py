@@ -8,9 +8,9 @@ Usage:
                                          --prune        permanently delete orphaned local files
                                          --keep         leave orphans alone (no trash)
                                          --force-full   bypass delta sync, always fetch manifest
-    specs-cli.py log <project-id> [--since DUR] [--author EMAIL] [--entity TYPE]
+    specs-cli.py log <project-id|--all> [--since DUR] [--author EMAIL] [--entity TYPE]
                                        [--limit N] [--json] [--since-last-visit] [--mark-read]
-                                       — Stream audit events for a project
+                                       — Stream audit events (one project, or --all for every configured project)
     specs-cli.py push <file_path>      — Push a single spec file
     specs-cli.py status                — Show sync status of local spec files
     specs-cli.py set-status <id> <status> — Set feature or document status
@@ -1184,7 +1184,11 @@ def specs_log(
     since_last_visit=False,
     mark_read=False,
 ):
-    """Stream audit events for a project. `specs log <project> [...flags]`."""
+    """Stream audit events for a project, or for all configured projects when
+    project_id is None (`--all`). Events from every project are merged and
+    sorted by timestamp so "what happened yesterday" works across the whole
+    workspace.
+    """
     cfg = config.read_config()
     if not cfg:
         print("specs: no config found — create .claude/specs.md or .claude/specs.local.md", file=sys.stderr)
@@ -1195,94 +1199,144 @@ def specs_log(
         print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
         sys.exit(1)
 
-    # Verify project is configured
-    if not any(p["id"] == project_id for p in cfg["projects"]):
-        print(f"specs: project '{project_id}' not in config", file=sys.stderr)
-        sys.exit(1)
+    # Pick the project list: one specific project, or all configured ones
+    if project_id is None:
+        projects_to_query = cfg["projects"]
+        if not projects_to_query:
+            print("specs: no projects configured", file=sys.stderr)
+            sys.exit(1)
+    else:
+        if not any(p["id"] == project_id for p in cfg["projects"]):
+            print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+            sys.exit(1)
+        projects_to_query = [p for p in cfg["projects"] if p["id"] == project_id]
 
     service_url = cfg["service_url"]
     project_root = cfg["project_root"]
     state = state_load(project_root)
-    proj_state = state_get_project(state, project_id)
 
-    # Build query params
-    qs = {"limit": str(min(max(limit, 1), 1000))}
+    # Build the per-project query params (same for each project except since-cursor)
+    base_qs = {"limit": str(min(max(limit, 1), 1000))}
 
+    # Only apply current-user filter for --since-last-visit (matches prior behavior)
     if since_last_visit:
-        cursor = proj_state.get("last_visit_cursor")
-        if cursor:
-            qs["since"] = cursor
-        # Skip the user's own events for "since last visit" — they already know
+        base_qs["order"] = "asc"  # chronological so we can find the newest event
         current_actor = headers.get("X-Actor") or _current_user_email(headers)
         if current_actor:
-            qs["actor_not"] = current_actor
-        qs["order"] = "asc"  # chronological so we can determine the newest event id
+            base_qs["actor_not"] = current_actor
     else:
-        qs["order"] = "desc"  # default: recent first
-        since_dt = _parse_since(since)
-        if since_dt and not since_last_visit:
-            # No direct timestamp filter — we'll filter client-side below.
-            # (The server endpoint uses event ids for cursors, not timestamps,
-            # so --since is a display convenience.)
-            pass
+        base_qs["order"] = "desc"
 
     if author:
-        qs["actor"] = author
+        base_qs["actor"] = author
     if entity_type:
-        qs["entity_type"] = entity_type
+        base_qs["entity_type"] = entity_type
 
     from urllib.parse import urlencode
-    url = f"{service_url}/api/sync/projects/{project_id}/changes?{urlencode(qs)}"
 
-    try:
-        status, body = api_request(url, headers=headers)
-    except ConnectionError as e:
-        print(f"specs: log failed — {e}", file=sys.stderr)
-        sys.exit(1)
+    # Fetch from every selected project, attach project_id to each event so
+    # the display can call it out, and merge.
+    all_events = []
+    per_project_newest = {}  # project_id → newest event id (for --mark-read)
+    errors = []
 
-    if status == 401:
-        print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
-        sys.exit(1)
-    if status != 200:
-        print(f"specs: log failed (HTTP {status}): {body}", file=sys.stderr)
-        sys.exit(1)
+    for proj in projects_to_query:
+        pid = proj["id"]
+        qs = dict(base_qs)
+        if since_last_visit:
+            proj_state = state_get_project(state, pid)
+            cursor = proj_state.get("last_visit_cursor")
+            if cursor:
+                qs["since"] = cursor
 
-    data = json.loads(body)
-    events = data.get("events", [])
+        url = f"{service_url}/api/sync/projects/{pid}/changes?{urlencode(qs)}"
+        try:
+            status, body = api_request(url, headers=headers)
+        except ConnectionError as e:
+            errors.append(f"{pid}: {e}")
+            continue
 
-    # Client-side --since filter if needed
+        if status == 401:
+            print("specs: authentication expired — run /awolve-spec:login", file=sys.stderr)
+            sys.exit(1)
+        if status != 200:
+            errors.append(f"{pid}: HTTP {status}")
+            continue
+
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            errors.append(f"{pid}: invalid JSON response")
+            continue
+
+        project_events = data.get("events", [])
+        # Tag each event with its project id so multi-project output can show it
+        for ev in project_events:
+            ev["_projectId"] = pid
+        all_events.extend(project_events)
+
+        if project_events:
+            # Record newest id for --mark-read regardless of order direction
+            ids = [e["id"] for e in project_events]
+            per_project_newest[pid] = max(ids)
+
+    # Client-side --since filter (display convenience; server pages on ids, not timestamps)
     since_dt = _parse_since(since)
     if since_dt:
-        events = [
-            e for e in events
+        all_events = [
+            e for e in all_events
             if _parse_iso(e.get("createdAt", "")) and _parse_iso(e["createdAt"]) >= since_dt
         ]
 
-    if as_json:
-        print(json.dumps(events, indent=2))
-    else:
-        _print_log_events(events, since_last_visit=since_last_visit)
+    # Merge: sort by id (ULIDs sort lexicographically by time). Display order
+    # matches the per-project order chosen above.
+    all_events.sort(key=lambda e: e["id"], reverse=(base_qs["order"] == "desc"))
 
-    # --mark-read: advance the visit cursor to the newest event shown
-    if mark_read and events:
-        # When order=asc, the newest is last; when desc, it's first
-        newest_id = events[-1]["id"] if qs.get("order") == "asc" else events[0]["id"]
-        state_update_project(state, project_id, last_visit_cursor=newest_id)
+    # Apply the combined limit after the merge — otherwise "--limit 50 --all"
+    # would return up to 50 × N projects events.
+    all_events = all_events[: int(base_qs["limit"])]
+
+    if as_json:
+        print(json.dumps(all_events, indent=2))
+    else:
+        multi_project = len(projects_to_query) > 1
+        _print_log_events(all_events, since_last_visit=since_last_visit, multi_project=multi_project)
+
+    # --mark-read: advance the visit cursor per project
+    if mark_read and per_project_newest:
+        for pid, newest_id in per_project_newest.items():
+            state_update_project(state, pid, last_visit_cursor=newest_id)
         try:
             state_save(project_root, state)
-            print(f"\nspecs: marked read up to {newest_id}", file=sys.stderr)
+            if project_id is None:
+                print(f"\nspecs: marked {len(per_project_newest)} project(s) read", file=sys.stderr)
+            else:
+                print(f"\nspecs: marked read up to {per_project_newest[project_id]}", file=sys.stderr)
         except OSError as e:
             print(f"specs: warning — failed to save state: {e}", file=sys.stderr)
 
+    # Surface per-project errors at the end so they don't drown out successes
+    for err in errors:
+        print(f"specs: log skipped {err}", file=sys.stderr)
 
-def _print_log_events(events, since_last_visit=False):
-    """Render log events in human-readable colored output."""
+
+def _print_log_events(events, since_last_visit=False, multi_project=False):
+    """Render log events in human-readable colored output.
+
+    When `multi_project` is True, each row is prefixed with the originating
+    project id so a merged cross-project feed stays legible.
+    """
     if not events:
         if since_last_visit:
             print("(no new events since your last visit)")
         else:
             print("(no events)")
         return
+
+    # Compute column width for project id so the output stays aligned
+    proj_width = 0
+    if multi_project:
+        proj_width = max((len(ev.get("_projectId", "")) for ev in events), default=0)
 
     # Group by day
     last_day = None
@@ -1303,8 +1357,12 @@ def _print_log_events(events, since_last_visit=False):
         )
         time_str = dt.strftime("%H:%M")
         relative = _relative_time(ev["createdAt"])
+        proj_prefix = ""
+        if multi_project:
+            proj_prefix = f"{_DIM}[{ev.get('_projectId', '?'):{proj_width}}]{_RESET}  "
         print(
             f"  {_DIM}{time_str}{_RESET}  "
+            f"{proj_prefix}"
             f"{badge_color}{badge_label:>8}{_RESET}  "
             f"{ev['summary']}  "
             f"{_DIM}— {ev['actor']} · {relative}{_RESET}"
@@ -2556,10 +2614,7 @@ def main():
                 project_filter = a
         pull(project_filter=project_filter, quiet=quiet, delete_mode=delete_mode, force_full=force_full)
     elif cmd == "log":
-        if len(args) < 2:
-            print("Usage: specs-cli.py log <project-id> [--since DUR] [--author EMAIL] [--entity TYPE] [--limit N] [--json] [--since-last-visit] [--mark-read]", file=sys.stderr)
-            sys.exit(1)
-        project_id = args[1]
+        project_id = None
         since_arg = None
         author_arg = None
         entity_arg = None
@@ -2567,10 +2622,13 @@ def main():
         json_out = False
         since_last_visit = False
         mark_read = False
-        i = 2
+        all_projects = False
+        i = 1
         while i < len(args):
             a = args[i]
-            if a == "--since" and i + 1 < len(args):
+            if a == "--all":
+                all_projects = True; i += 1
+            elif a == "--since" and i + 1 < len(args):
                 since_arg = args[i + 1]; i += 2
             elif a == "--author" and i + 1 < len(args):
                 author_arg = args[i + 1]; i += 2
@@ -2589,10 +2647,20 @@ def main():
                 since_last_visit = True; i += 1
             elif a == "--mark-read":
                 mark_read = True; i += 1
+            elif not a.startswith("-") and project_id is None:
+                project_id = a; i += 1
             else:
                 i += 1
+
+        if not all_projects and project_id is None:
+            print("Usage: specs-cli.py log <project-id|--all> [--since DUR] [--author EMAIL] [--entity TYPE] [--limit N] [--json] [--since-last-visit] [--mark-read]", file=sys.stderr)
+            sys.exit(1)
+        if all_projects and project_id is not None:
+            print("specs: cannot combine --all with a project id", file=sys.stderr)
+            sys.exit(1)
+
         specs_log(
-            project_id,
+            project_id,  # None when --all is passed
             since=since_arg,
             author=author_arg,
             entity_type=entity_arg,
