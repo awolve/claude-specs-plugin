@@ -2,7 +2,7 @@
 
 ## 0.14.2 — 2026-04-12
 
-- **New slash command `/awolve-spec:update-plugins`** — refreshes the `awolve-open-claude-plugins` marketplace (awolve-spec, awolve-cortex, hookify) and prompts the user to run `/reload-plugins`. Counterpart to `/update-awolve-plugins` (which covers `awolve-marketplace`). `/cortex-update` runs both.
+- **New slash command `/awolve-spec:update-plugins`** — refreshes the `awolve-open-claude-plugins` marketplace and prompts the user to run `/reload-plugins`. Counterpart to `/update-awolve-plugins` (which covers `awolve-marketplace`). `/cortex-update` runs both.
 
 ## 0.14.1 — 2026-04-12
 

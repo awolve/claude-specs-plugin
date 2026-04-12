@@ -1,12 +1,12 @@
 ---
-description: Update the awolve-open-claude-plugins marketplace (awolve-spec / awolve-cortex / hookify) and reload the session
+description: Refresh the awolve-open-claude-plugins marketplace and reload the session
 ---
 
 # /awolve-spec:update-plugins
 
-Refresh the `awolve-open-claude-plugins` marketplace (from `awolve/open-claude-plugins`) so new versions of the awolve-spec, awolve-cortex, and hookify plugins become available locally, then prompt the user to reload the session.
+Refresh the `awolve-open-claude-plugins` marketplace (from `awolve/open-claude-plugins`) so newer plugin versions become available locally, then prompt the user to reload the session.
 
-> **Scope note:** this command does NOT cover `awolve-marketplace` (cortex / admin / developer / general plugins). For those, run `/update-awolve-plugins`. `/cortex-update` runs both.
+> **Scope note:** this only covers `awolve-open-claude-plugins`. For `awolve-marketplace`, run `/update-awolve-plugins`. `/cortex-update` runs both.
 
 ## Instructions
 
