@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.3 — 2026-04-13
+- `create-feature` now sends the spec number explicitly to the service as `number` in the POST body, derived from the folder name prefix. The service also accepts the prefix implicitly, but sending it explicitly keeps CLI and service consistent when the name already has a number.
+- Requires spec-service v0.20.0 or later (earlier versions ignore the `number` field).
+
 ## 0.14.2 — 2026-04-12
 
 - **New slash command `/awolve-spec:update-plugins`** — refreshes the `awolve-open-claude-plugins` marketplace and prompts the user to run `/reload-plugins`. Counterpart to `/update-awolve-plugins` (which covers `awolve-marketplace`). `/cortex-update` runs both.
@@ -78,7 +82,6 @@ Output is colored by entity type (feature / doc / version / comment / review / b
 ### Requires
 
 - spec-service v0.18.0 or later. Older versions return the manifest without a `cursor` field, which the plugin tolerates but deletion detection + delta sync fall back to "full manifest every time".
-
 ## 0.13.0 — 2026-04-10
 - **Binary attachments**. Completes the filesystem-sync half of the spec-service file upload feature (service side shipped in spec-service 0.13.0).
   - `pull` now also downloads feature attachments to the local feature folder alongside .md docs. Deduped by `(filename, size)` — re-downloads on size mismatch, skips otherwise.

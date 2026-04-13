@@ -1973,6 +1973,11 @@ def create_feature(project_id, name, initial_status="specifying"):
 
     feature_id = f"{project_id}/{folder_name}"
 
+    # Extract number from the folder name prefix (always present — we either
+    # matched one in `name` above, or computed `num` and formatted it in).
+    number_match = re.match(r"^(\d+)-", folder_name)
+    feature_number = int(number_match.group(1)) if number_match else None
+
     # Create local folder
     local_dir = os.path.join(specs_path, folder_name)
     os.makedirs(local_dir, exist_ok=True)
@@ -1988,6 +1993,8 @@ def create_feature(project_id, name, initial_status="specifying"):
         "title": title,
         "contextPath": context_path,
     }
+    if feature_number is not None:
+        payload["number"] = feature_number
 
     try:
         status_code, body = api_request(
