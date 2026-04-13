@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 — 2026-04-13
+
+**Feature shortDescription from the CLI.** Companion to spec-service v0.21.1 which fixed the PATCH route.
+
+- `create-feature` learned `--description "<text>"` — sets the feature's shortDescription immediately after creation (via a follow-up PATCH to `/api/features/lookup`, since the POST endpoint doesn't accept the field yet).
+- New subcommand `set-description <feature-id> <text>` — update or clear an existing feature's shortDescription. Pass `""` to clear.
+- New slash command `/awolve-spec:set-description` — Claude-facing wrapper.
+- Requires spec-service v0.21.1 or later (earlier versions silently drop `short_description` on the lookup PATCH).
+
 ## 0.14.3 — 2026-04-13
 - `create-feature` now sends the spec number explicitly to the service as `number` in the POST body, derived from the folder name prefix. The service also accepts the prefix implicitly, but sending it explicitly keeps CLI and service consistent when the name already has a number.
 - Requires spec-service v0.20.0 or later (earlier versions ignore the `number` field).

@@ -14,7 +14,9 @@ Usage:
     specs-cli.py push <file_path>      — Push a single spec file
     specs-cli.py status                — Show sync status of local spec files
     specs-cli.py set-status <id> <status> — Set feature or document status
-    specs-cli.py create-feature <project-id> <name> [--status STATUS]
+    specs-cli.py set-description <feature-id> <text>
+                                       — Set or clear a feature's shortDescription (pass "" to clear)
+    specs-cli.py create-feature <project-id> <name> [--status STATUS] [--description TEXT]
                                        — Create a new feature in a project
     specs-cli.py create-doc <project-id> <feature-name> <filename>
                                        — Add a document to an existing feature
@@ -1948,7 +1950,42 @@ def _find_project(cfg, project_id):
     sys.exit(1)
 
 
-def create_feature(project_id, name, initial_status="specifying"):
+def set_description(feature_id, description):
+    """Set or clear a feature's shortDescription. Pass "" to clear."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    if "/" not in feature_id:
+        print(f"specs: feature id must be 'project/name' (got '{feature_id}')", file=sys.stderr)
+        sys.exit(1)
+
+    import urllib.parse
+    service_url = cfg["service_url"]
+    encoded_id = urllib.parse.quote(feature_id, safe="")
+    status_code, resp_body = api_request(
+        f"{service_url}/api/features/lookup?id={encoded_id}",
+        method="PATCH",
+        headers={**headers, "Content-Type": "application/json"},
+        data={"short_description": description},
+    )
+    if status_code not in (200, 201):
+        print(f"specs: failed to update description (HTTP {status_code}): {resp_body}", file=sys.stderr)
+        sys.exit(1)
+
+    if description == "":
+        print(f"specs: feature {feature_id} description cleared")
+    else:
+        print(f"specs: feature {feature_id} description updated")
+
+
+def create_feature(project_id, name, initial_status="specifying", description=None):
     """Create a new feature in a project."""
     cfg = config.read_config()
     if not cfg:
@@ -2024,6 +2061,19 @@ def create_feature(project_id, name, initial_status="specifying"):
             headers={**headers, "Content-Type": "application/json"},
             data={"status": initial_status},
         )
+
+    # Set shortDescription if provided (POST /api/features doesn't accept it yet)
+    if description is not None:
+        import urllib.parse
+        encoded_id = urllib.parse.quote(feature_id, safe="")
+        status_code, resp_body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"short_description": description},
+        )
+        if status_code not in (200, 201):
+            print(f"specs: warning — feature created but description PATCH failed (HTTP {status_code}): {resp_body}", file=sys.stderr)
 
     print(f"specs: created feature '{feature_id}'")
     print(f"  path: {local_dir}")
@@ -2722,13 +2772,21 @@ def main():
         create_backlog_item(args[1], args[2], desc, pri)
     elif cmd == "create-feature":
         if len(args) < 3:
-            print("Usage: specs-cli.py create-feature <project-id> <name> [--status STATUS]", file=sys.stderr)
+            print("Usage: specs-cli.py create-feature <project-id> <name> [--status STATUS] [--description TEXT]", file=sys.stderr)
             sys.exit(1)
         status_val = "specifying"
+        description_val = None
         for i, a in enumerate(args):
             if a == "--status" and i + 1 < len(args):
                 status_val = args[i + 1]
-        create_feature(args[1], args[2], initial_status=status_val)
+            elif a == "--description" and i + 1 < len(args):
+                description_val = args[i + 1]
+        create_feature(args[1], args[2], initial_status=status_val, description=description_val)
+    elif cmd == "set-description":
+        if len(args) < 3:
+            print("Usage: specs-cli.py set-description <feature-id> <text>", file=sys.stderr)
+            sys.exit(1)
+        set_description(args[1], args[2])
     elif cmd == "create-doc":
         if len(args) < 4:
             print("Usage: specs-cli.py create-doc <project-id> <feature-name> <filename>", file=sys.stderr)

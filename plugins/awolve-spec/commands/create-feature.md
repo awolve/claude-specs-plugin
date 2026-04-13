@@ -16,10 +16,12 @@ If the user didn't provide arguments, ask:
 The script auto-assigns the next spec number (e.g. `004-user-notifications`).
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-feature <project-id> <feature-name> [--status STATUS]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py create-feature <project-id> <feature-name> [--status STATUS] [--description TEXT]
 ```
 
 Default status is `specifying`. Use `--status idea` for placeholder features.
+
+Optional `--description "One or two sentences…"` sets the feature's short description (visible on the portal list view). Can also be set later via `/awolve-spec:set-description`.
 
 After creation, suggest next steps:
 - `/awolve-spec:req` to write requirements
