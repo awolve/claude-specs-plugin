@@ -34,6 +34,8 @@ Usage:
                                        — List all documents in a feature
     specs-cli.py bugs <project-id>     — List bugs for a project
     specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
+    specs-cli.py view-bug <project-id> <bug-number> [--json]
+                                       — Show full details of a single bug (description, severity, repro, etc.)
     specs-cli.py comments <file-path>  — List comments on a spec document
     specs-cli.py comment <file-path> <body> [--inline --anchor <text>]
                                        — Add a comment to a spec document
@@ -1777,6 +1779,89 @@ def list_bugs(project_id=None):
             print(f"        {status} — reported by {reporter}")
 
 
+def view_bug(project_id, bug_number, as_json=False):
+    """Show full details for a single bug by its short number."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    projects = [p for p in cfg["projects"] if p["id"] == project_id]
+    if not projects:
+        print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        number = int(str(bug_number).lstrip("#"))
+    except ValueError:
+        print(f"specs: bug number must be an integer, got '{bug_number}'", file=sys.stderr)
+        sys.exit(1)
+
+    url = f"{service_url}/api/portal/projects/{project_id}/bugs"
+    try:
+        status_code, body = api_request(url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: failed to fetch bugs — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to fetch bugs (HTTP {status_code})", file=sys.stderr)
+        sys.exit(1)
+
+    bugs = json.loads(body)
+    match = next((b for b in bugs if b.get("number") == number), None)
+    if not match:
+        print(f"specs: bug #{number} not found in '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    if as_json:
+        print(json.dumps(match, indent=2))
+        return
+
+    severity = match.get("severity", "?")
+    sev_marker = {"critical": "!!!", "high": "!!", "medium": "!", "low": "."}.get(severity, "?")
+    reporter = match.get("reporterName") or match.get("reporterEmail", "?")
+    title = match.get("title", "untitled")
+    status = match.get("status", "?")
+    created = match.get("createdAt", "?")
+    updated = match.get("updatedAt", "?")
+    description = match.get("description") or "(no description)"
+    steps = match.get("steps")
+    expected = match.get("expected")
+    actual = match.get("actual")
+    environment = match.get("environment")
+    comment_count = match.get("commentCount", 0)
+
+    print(f"#{number} [{sev_marker} {severity}] {title}")
+    print(f"  status:    {status}")
+    print(f"  reporter:  {reporter}")
+    print(f"  created:   {created}")
+    if updated != created:
+        print(f"  updated:   {updated}")
+    if environment:
+        print(f"  env:       {environment}")
+    print(f"  comments:  {comment_count}")
+    print(f"  portal:    {service_url}/portal/{project_id}/bugs/{match.get('id', '')}")
+    print()
+    print("Description:")
+    print(description)
+    if steps:
+        print("\nSteps to reproduce:")
+        print(steps)
+    if expected:
+        print("\nExpected:")
+        print(expected)
+    if actual:
+        print("\nActual:")
+        print(actual)
+
+
 def list_backlog(project_id=None):
     """List backlog items for a project or all configured projects."""
     cfg = config.read_config()
@@ -2743,6 +2828,13 @@ def main():
     elif cmd == "bugs":
         proj = args[1] if len(args) > 1 and not args[1].startswith("-") else None
         list_bugs(proj)
+    elif cmd == "view-bug":
+        as_json = "--json" in args
+        positional = [a for a in args[1:] if a != "--json"]
+        if len(positional) < 2:
+            print("Usage: specs-cli.py view-bug <project-id> <bug-number> [--json]", file=sys.stderr)
+            sys.exit(1)
+        view_bug(positional[0], positional[1], as_json=as_json)
     elif cmd == "bug":
         # Parse --attach flags
         images = []

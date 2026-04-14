@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1 — 2026-04-15
+
+- New subcommand `view-bug <project-id> <bug-number> [--json]` — fetch full bug details (description, severity, repro). Previously there was no way to read a bug's body without opening the portal or curling the API.
+- New slash command `/awolve-spec:view-bug` — Claude-facing wrapper.
+- SKILL.md now includes a full `specs-cli.py` subcommand reference so Claude doesn't have to grep the script source to discover the command surface. Also documents two sharp edges: `create-feature` rejects numeric prefixes (service auto-numbers), and `--json` is available on several list commands.
+
 ## 0.15.0 — 2026-04-13
 
 **Feature shortDescription from the CLI.** Companion to spec-service v0.21.1 which fixed the PATCH route.

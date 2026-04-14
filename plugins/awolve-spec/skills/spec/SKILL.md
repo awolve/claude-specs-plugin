@@ -55,8 +55,50 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/awolve-spec:list-features` — List all features in a project
 - `/awolve-spec:backlog` — List backlog items
 - `/awolve-spec:backlog-add` — Add a backlog item
-- `/bugs` — List bugs
-- `/bug` — Report a bug
+- `/awolve-spec:bugs` — List open bugs for a project
+- `/awolve-spec:view-bug` — Show full details of a single bug (description, severity, repro)
+- `/awolve-spec:bug` — Report a new bug
+
+## specs-cli.py reference
+
+Most slash commands wrap `${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py`. When a slash command does not exist for what you need, call the CLI directly — don't grep the script source and don't reach for the raw HTTP API. Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.py --help` to confirm.
+
+Full subcommand surface:
+
+| Subcommand | Purpose |
+|------------|---------|
+| `pull [project-id] [--prune\|--keep] [--force-full]` | Pull latest specs |
+| `push <file-path>` | Push a single spec file |
+| `status` | Show sync status of local spec files |
+| `log <project-id\|--all> [--since DUR] [--json] [--since-last-visit] [--mark-read]` | Audit log stream |
+| `set-status <id> <status>` | Change feature or document status |
+| `set-description <feature-id> <text>` | Set or clear feature shortDescription |
+| `create-feature <project-id> <name> [--status] [--description]` | Create feature (service auto-assigns the number — do NOT include a numeric prefix in `<name>`) |
+| `create-doc <project-id> <feature-name> <filename>` | Add a document to a feature |
+| `rename-feature <project-id> <old> <new>` | Rename feature folder + service |
+| `rename-doc <file-path> <new-filename>` | Rename a document |
+| `delete-doc <file-path>` | Delete a document |
+| `delete-feature <project-id> <feature-name>` | Delete a feature and its docs |
+| `list-features <project-id>` | List all features in a project |
+| `list-docs <project-id> <feature-name>` | List all docs in a feature |
+| `bugs <project-id>` | List open bugs (tabular summary only) |
+| `view-bug <project-id> <bug-number> [--json]` | Full bug details |
+| `bug <project-id> <title> <description> [severity] [--attach file ...]` | Report a bug |
+| `comments <file-path>` / `comment <file-path> <body> [--inline --anchor <text>]` | Read / add comments |
+| `resolve-comment <comment-id>` | Resolve a comment |
+| `reviews <file-path>` / `review <file-path> <verdict> [body]` | Read / submit reviews |
+| `versions <file-path>` / `save <file-path> <summary>` | Version history / snapshot |
+| `backlog <project-id>` / `backlog-add <project-id> <title> [description] [priority]` | Read / add backlog items |
+| `service-status` | Health check |
+| `attach <file-path> [<project-id>/<feature-name>]` | Upload binary attachment |
+
+Service base URL lives in `~/.claude-specs/config.yaml` (`service_url`). The portal UI is `<service_url>/portal/<project>/...` — useful for linking a user to a resource.
+
+### Conventions when calling the CLI directly
+
+- Pass `--json` where available (`comments`, `reviews`, `versions`, `log`, `view-bug`) when you need to parse output.
+- Never pass a numeric prefix to `create-feature <name>` — the service rejects it with HTTP 500 and auto-numbers the feature anyway.
+- Feature identifiers in URLs and subcommand arguments are the folder name (e.g. `030-terminal-resume-session`), not the UUID.
 
 ## Important: Always pull before reading specs
 
