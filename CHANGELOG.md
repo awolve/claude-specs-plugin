@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.2 — 2026-04-15
+
+- New subcommand `set-bug-status <project-id> <bug-number> <status>` — change a bug's status from the CLI. Previously the only way to close a resolved bug was via the portal UI or a manual PATCH to the API.
+- New slash command `/awolve-spec:set-bug-status`.
+- SKILL.md reference table updated.
+
 ## 0.15.1 — 2026-04-15
 
 - New subcommand `view-bug <project-id> <bug-number> [--json]` — fetch full bug details (description, severity, repro). Previously there was no way to read a bug's body without opening the portal or curling the API.

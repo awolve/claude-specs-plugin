@@ -58,6 +58,7 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/awolve-spec:bugs` — List open bugs for a project
 - `/awolve-spec:view-bug` — Show full details of a single bug (description, severity, repro)
 - `/awolve-spec:bug` — Report a new bug
+- `/awolve-spec:set-bug-status` — Change a bug's status (open/triaged/in_progress/resolved/closed)
 
 ## specs-cli.py reference
 
@@ -84,6 +85,7 @@ Full subcommand surface:
 | `bugs <project-id>` | List open bugs (tabular summary only) |
 | `view-bug <project-id> <bug-number> [--json]` | Full bug details |
 | `bug <project-id> <title> <description> [severity] [--attach file ...]` | Report a bug |
+| `set-bug-status <project-id> <bug-number> <status>` | Change bug status (open/triaged/in_progress/resolved/closed) |
 | `comments <file-path>` / `comment <file-path> <body> [--inline --anchor <text>]` | Read / add comments |
 | `resolve-comment <comment-id>` | Resolve a comment |
 | `reviews <file-path>` / `review <file-path> <verdict> [body]` | Read / submit reviews |

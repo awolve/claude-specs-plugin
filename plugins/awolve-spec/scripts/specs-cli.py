@@ -36,6 +36,8 @@ Usage:
     specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
     specs-cli.py view-bug <project-id> <bug-number> [--json]
                                        — Show full details of a single bug (description, severity, repro, etc.)
+    specs-cli.py set-bug-status <project-id> <bug-number> <status>
+                                       — Change a bug's status (open|triaged|in_progress|resolved|closed)
     specs-cli.py comments <file-path>  — List comments on a spec document
     specs-cli.py comment <file-path> <body> [--inline --anchor <text>]
                                        — Add a comment to a spec document
@@ -1720,6 +1722,7 @@ def set_status(identifier, new_status):
 # ---------------------------------------------------------------------------
 
 BUG_SEVERITIES = ["low", "medium", "high", "critical"]
+BUG_STATUSES = ["open", "triaged", "in_progress", "resolved", "closed"]
 
 
 def list_bugs(project_id=None):
@@ -1860,6 +1863,66 @@ def view_bug(project_id, bug_number, as_json=False):
     if actual:
         print("\nActual:")
         print(actual)
+
+
+def set_bug_status(project_id, bug_number, status):
+    """Update a bug's status by its short number."""
+    if status not in BUG_STATUSES:
+        print(f"specs: invalid status '{status}'. Valid: {', '.join(BUG_STATUSES)}", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    projects = [p for p in cfg["projects"] if p["id"] == project_id]
+    if not projects:
+        print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        number = int(str(bug_number).lstrip("#"))
+    except ValueError:
+        print(f"specs: bug number must be an integer, got '{bug_number}'", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve short number to UUID by fetching the project's bug list.
+    list_url = f"{service_url}/api/portal/projects/{project_id}/bugs"
+    try:
+        status_code, body = api_request(list_url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: failed to fetch bugs — {e}", file=sys.stderr)
+        sys.exit(1)
+    if status_code != 200:
+        print(f"specs: failed to fetch bugs (HTTP {status_code})", file=sys.stderr)
+        sys.exit(1)
+
+    bugs = json.loads(body)
+    match = next((b for b in bugs if b.get("number") == number), None)
+    if not match:
+        print(f"specs: bug #{number} not found in '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    bug_id = match["id"]
+    patch_url = f"{service_url}/api/portal/bugs/{bug_id}"
+    try:
+        status_code, body = api_request(patch_url, method="PATCH", headers=headers, data={"status": status})
+    except ConnectionError as e:
+        print(f"specs: failed to update bug — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to update bug #{number} (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: bug #{number} '{match.get('title', '')}' → {status}")
 
 
 def list_backlog(project_id=None):
@@ -2835,6 +2898,12 @@ def main():
             print("Usage: specs-cli.py view-bug <project-id> <bug-number> [--json]", file=sys.stderr)
             sys.exit(1)
         view_bug(positional[0], positional[1], as_json=as_json)
+    elif cmd == "set-bug-status":
+        if len(args) < 4:
+            print("Usage: specs-cli.py set-bug-status <project-id> <bug-number> <status>", file=sys.stderr)
+            print(f"  Statuses: {', '.join(BUG_STATUSES)}", file=sys.stderr)
+            sys.exit(1)
+        set_bug_status(args[1], args[2], args[3])
     elif cmd == "bug":
         # Parse --attach flags
         images = []
