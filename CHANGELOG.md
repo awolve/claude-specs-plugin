@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.3 — 2026-04-16
+
+- **Fix (bug #9): set-status refuses ambiguous bare feature names.** When a feature name like `001-base-infrastructure` exists in multiple projects, `set-status` previously silently updated the first match — wrong project, no warning. Now collects all matches first and errors with: `feature name '...' exists in multiple projects: ..., ... — use <project>/<feature> form`. The qualified form (`project/feature-name`) was already supported and continues to work.
+
 ## 0.15.2 — 2026-04-15
 
 - New subcommand `set-bug-status <project-id> <bug-number> <status>` — change a bug's status from the CLI. Previously the only way to close a resolved bug was via the portal UI or a manual PATCH to the API.

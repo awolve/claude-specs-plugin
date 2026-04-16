@@ -1691,27 +1691,40 @@ def set_status(identifier, new_status):
                 print(f"specs: document {identifier} → {new_status}")
                 return
 
-        # Try as feature ID without slash
+        # Try as feature ID without slash — collect all matches first to
+        # detect ambiguity (bug #9: same feature name in multiple projects).
         if new_status in FEATURE_STATUSES:
-            # Search local files for a matching feature
+            import urllib.parse
+            matches = []  # [(feature_id, project_id, entry), ...]
             for proj in cfg["projects"]:
                 specs_path = proj["path"]
                 if not os.path.isdir(specs_path):
                     continue
                 for entry in os.listdir(specs_path):
                     if entry == identifier or entry.endswith(identifier):
-                        feature_id = f"{proj['id']}/{entry}"
-                        import urllib.parse
-                        encoded_id = urllib.parse.quote(feature_id, safe="")
-                        status_code, resp_body = api_request(
-                            f"{service_url}/api/features/lookup?id={encoded_id}",
-                            method="PATCH",
-                            headers={**headers, "Content-Type": "application/json"},
-                            data={"status": new_status},
-                        )
-                        if status_code in (200, 201):
-                            print(f"specs: feature {feature_id} → {new_status}")
-                            return
+                        matches.append((f"{proj['id']}/{entry}", proj["id"], entry))
+
+            if len(matches) > 1:
+                projects_list = ", ".join(m[1] for m in matches)
+                print(
+                    f"specs: feature name '{identifier}' exists in multiple projects: {projects_list}\n"
+                    f"  Use the qualified form: specs-cli.py set-status <project>/<feature> <status>",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            if len(matches) == 1:
+                feature_id = matches[0][0]
+                encoded_id = urllib.parse.quote(feature_id, safe="")
+                status_code, resp_body = api_request(
+                    f"{service_url}/api/features/lookup?id={encoded_id}",
+                    method="PATCH",
+                    headers={**headers, "Content-Type": "application/json"},
+                    data={"status": new_status},
+                )
+                if status_code in (200, 201):
+                    print(f"specs: feature {feature_id} → {new_status}")
+                    return
 
         print(f"specs: could not find feature or document '{identifier}'", file=sys.stderr)
         sys.exit(1)
