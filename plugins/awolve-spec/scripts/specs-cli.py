@@ -2332,8 +2332,18 @@ def create_document(project_id, feature_name, filename):
     print(f"  doc_id: {doc_id}")
 
 
-def rename_feature(project_id, old_name, new_name):
-    """Rename a feature folder and update the service."""
+def _derive_title(slug):
+    """Derive a human-readable title from a feature slug.
+
+    '003-agentic-context-service' → 'Agentic Context Service'
+    'my-feature' → 'My Feature'
+    """
+    name = re.sub(r"^\d+-", "", slug)
+    return name.replace("-", " ").replace("_", " ").strip().title()
+
+
+def rename_feature(project_id, old_name, new_name, title_override=None):
+    """Rename a feature folder and update the service (name + title)."""
     cfg = config.read_config()
     if not cfg:
         print("specs: no config found", file=sys.stderr)
@@ -2356,6 +2366,7 @@ def rename_feature(project_id, old_name, new_name):
 
     old_feature_id = f"{project_id}/{old_name}"
     new_feature_id = f"{project_id}/{new_name}"
+    new_title = title_override or _derive_title(new_name)
 
     old_dir = os.path.join(specs_path, old_name)
     new_dir = os.path.join(specs_path, new_name)
@@ -2368,7 +2379,7 @@ def rename_feature(project_id, old_name, new_name):
         print(f"specs: target folder already exists: {new_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Update service
+    # Update service — send both name and title (bug #6 fix).
     import urllib.parse
     encoded_id = urllib.parse.quote(old_feature_id, safe="")
 
@@ -2377,7 +2388,7 @@ def rename_feature(project_id, old_name, new_name):
             f"{service_url}/api/features/lookup?id={encoded_id}",
             method="PATCH",
             headers={**headers, "Content-Type": "application/json"},
-            data={"name": new_name},
+            data={"name": new_name, "title": new_title},
         )
     except ConnectionError as e:
         print(f"specs: failed to rename feature — {e}", file=sys.stderr)
@@ -2393,6 +2404,7 @@ def rename_feature(project_id, old_name, new_name):
     os.rename(old_dir, new_dir)
 
     print(f"specs: renamed '{old_feature_id}' → '{new_feature_id}'")
+    print(f"  title: {new_title}")
     print(f"  path: {new_dir}")
 
 
@@ -2762,6 +2774,30 @@ def attach_file(file_path, feature_identifier=None):
         sys.exit(1)
 
     feature_id = feature["id"]
+    upload_filename = os.path.basename(file_path)
+
+    # Check for existing attachment with the same filename and delete it first
+    # (bug #8: re-uploading the same filename previously created duplicates).
+    try:
+        att_status, att_body = api_request(
+            f"{service_url}/api/portal/attachments?entityType=feature&entityId={urllib.parse.quote(feature_id, safe='')}",
+            headers=headers,
+        )
+        if att_status == 200:
+            existing_atts = json.loads(att_body) if isinstance(att_body, str) else att_body
+            for att in existing_atts:
+                if att.get("filename") == upload_filename:
+                    del_status, _ = api_request(
+                        f"{service_url}/api/portal/attachments/{att['id']}",
+                        method="DELETE",
+                        headers=headers,
+                    )
+                    if del_status in (200, 204):
+                        print(f"specs: replaced existing attachment '{upload_filename}'")
+                    break
+    except Exception:
+        pass  # best-effort — upload will still succeed, just may duplicate
+
     content_type, body_bytes = _build_multipart("feature", feature_id, file_path)
 
     upload_url = f"{service_url}/api/portal/attachments"
@@ -2968,9 +3004,13 @@ def main():
         create_document(args[1], args[2], args[3])
     elif cmd == "rename-feature":
         if len(args) < 4:
-            print("Usage: specs-cli.py rename-feature <project-id> <old-name> <new-name>", file=sys.stderr)
+            print("Usage: specs-cli.py rename-feature <project-id> <old-name> <new-name> [--title TEXT]", file=sys.stderr)
             sys.exit(1)
-        rename_feature(args[1], args[2], args[3])
+        title_val = None
+        for i, a in enumerate(args):
+            if a == "--title" and i + 1 < len(args):
+                title_val = args[i + 1]
+        rename_feature(args[1], args[2], args[3], title_override=title_val)
     elif cmd == "rename-doc":
         if len(args) < 3:
             print("Usage: specs-cli.py rename-doc <file-path> <new-filename>", file=sys.stderr)

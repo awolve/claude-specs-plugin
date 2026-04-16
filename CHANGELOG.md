@@ -3,6 +3,8 @@
 ## 0.15.3 — 2026-04-16
 
 - **Fix (bug #9): set-status refuses ambiguous bare feature names.** When a feature name like `001-base-infrastructure` exists in multiple projects, `set-status` previously silently updated the first match — wrong project, no warning. Now collects all matches first and errors with: `feature name '...' exists in multiple projects: ..., ... — use <project>/<feature> form`. The qualified form (`project/feature-name`) was already supported and continues to work.
+- **Fix (bug #6): rename-feature now updates the title field.** Previously only patched `name` (slug), leaving the portal showing the old human-readable title. Now derives a title from the new slug (strip numeric prefix, title-case) and sends both `name` and `title` in the PATCH. Pass `--title "Custom Title"` to override the derivation.
+- **Fix (bug #8): attach replaces existing attachment with the same filename.** Previously re-uploading the same file created a duplicate row. Now checks existing attachments for the feature, and if one with the same filename exists, deletes it before uploading the replacement. Best-effort — if the check fails, upload still proceeds (may still duplicate).
 
 ## 0.15.2 — 2026-04-15
 
