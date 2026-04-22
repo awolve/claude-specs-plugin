@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.16.0 — 2026-04-22
+
+**Feature (spec 013): backlog hierarchy + filters + epic flag.**
+
+- `backlog-add` accepts `--parent <id-or-#N>` to create the item as a child of an existing epic, and `--epic` to create the item as an empty epic placeholder. Mutually exclusive.
+- New subcommand `backlog-set-parent <project> <item> <parent|none>` reparents an item; `none` clears the parent. Wraps the existing PATCH endpoint.
+- New slash command `/awolve-spec:backlog-set-parent`.
+- `backlog` list gains `--epics` (filter to `isEpic = true`), `--flat`, `--status`, `--priority`. Default is now a tree view with epic head + indented children. Epic rows are prefixed with `[EPIC]` and show a child-status histogram inline; empty epics show `· (no items yet)`.
+- All numeric `#N` references resolve server-side and report a clear error when the parent isn't an epic (`parent_not_an_epic`), still has its own children (`epic_has_children`), etc.
+- SKILL.md gains a "Backlog hierarchy" section guiding Claude to propose an epic when the user is adding multiple related items in one session.
+
+Requires spec-service v0.25.0 (adds `is_epic` column + parent validation).
+
 ## 0.15.3 — 2026-04-16
 
 - **Fix (bug #9): set-status refuses ambiguous bare feature names.** When a feature name like `001-base-infrastructure` exists in multiple projects, `set-status` previously silently updated the first match — wrong project, no warning. Now collects all matches first and errors with: `feature name '...' exists in multiple projects: ..., ... — use <project>/<feature> form`. The qualified form (`project/feature-name`) was already supported and continues to work.

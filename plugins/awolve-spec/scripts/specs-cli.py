@@ -32,6 +32,12 @@ Usage:
                                        — List all features in a project
     specs-cli.py list-docs <project-id> <feature-name>
                                        — List all documents in a feature
+    specs-cli.py backlog [project-id] [--epics|--flat] [--status STATUS] [--priority PRIORITY]
+                                       — List backlog items (default: tree view, grouped by epic)
+    specs-cli.py backlog-add <project-id> <title> [description] [priority] [--parent <id-or-#N>]
+                                       — Create a backlog item; optional --parent makes it a child of an epic
+    specs-cli.py backlog-set-parent <project-id> <item-id-or-#N> <parent-id-or-#N|none>
+                                       — Reparent a backlog item (or pass 'none' to clear the parent)
     specs-cli.py bugs <project-id>     — List bugs for a project
     specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
     specs-cli.py view-bug <project-id> <bug-number> [--json]
@@ -1938,8 +1944,15 @@ def set_bug_status(project_id, bug_number, status):
     print(f"specs: bug #{number} '{match.get('title', '')}' → {status}")
 
 
-def list_backlog(project_id=None):
-    """List backlog items for a project or all configured projects."""
+def list_backlog(project_id=None, view="tree", status_filter=None, priority_filter=None):
+    """List backlog items for a project or all configured projects.
+
+    Spec 013:
+      view='tree'  (default) — group items by parent: epic header + indented children
+      view='epics' — show only top-level items that have at least one child
+      view='flat'  — flat list, no grouping (legacy behavior)
+    Filters: optional status (single value) and priority (single value).
+    """
     cfg = config.read_config()
     if not cfg:
         print("specs: no config found", file=sys.stderr)
@@ -1973,6 +1986,10 @@ def list_backlog(project_id=None):
 
         items = json.loads(body)
         active = [i for i in items if i.get("status") not in ("completed", "archived")]
+        if status_filter:
+            active = [i for i in active if i.get("status") == status_filter]
+        if priority_filter:
+            active = [i for i in active if i.get("priority") == priority_filter]
 
         if len(projects) > 1:
             print(f"\n{proj['id']} ({len(active)} active)")
@@ -1984,19 +2001,146 @@ def list_backlog(project_id=None):
             continue
 
         print()
-        for item in active:
-            priority = item.get("priority", "?")
-            status = item.get("status", "?")
-            title = item.get("title", "untitled")
-            feature_id = item.get("featureId")
-            pri_marker = {"high": "!!!", "medium": "!!", "low": "!"}.get(priority, "?")
-            promoted = f" → {feature_id}" if feature_id else ""
-            print(f"  [{pri_marker}] {title}")
-            print(f"       {status}{promoted}")
+        if view == "flat":
+            for item in active:
+                _print_backlog_row(item, indent=0)
+        elif view == "epics":
+            epics = [i for i in active if i.get("isEpic")]
+            if not epics:
+                print("  (no epics)")
+            for item in epics:
+                _print_backlog_row(item, indent=0)
+        else:  # tree
+            children_by_parent = {}
+            for it in active:
+                pid = it.get("parentId")
+                if pid:
+                    children_by_parent.setdefault(pid, []).append(it)
+            for item in active:
+                if item.get("parentId"):
+                    continue
+                _print_backlog_row(item, indent=0)
+                kids = children_by_parent.get(item.get("id"), [])
+                for k in kids:
+                    _print_backlog_row(k, indent=2)
 
 
-def create_backlog_item(project_id, title, description=None, priority="medium"):
-    """Create a new backlog item."""
+def _print_backlog_row(item, indent=0):
+    pad = " " * indent
+    priority = item.get("priority", "?")
+    status = item.get("status", "?")
+    title = item.get("title", "untitled")
+    number = item.get("number")
+    feature_id = item.get("featureId")
+    is_epic = item.get("isEpic", False)
+    pri_marker = {"high": "!!!", "medium": "!!", "low": "!"}.get(priority, "?")
+    promoted = f" → {feature_id}" if feature_id else ""
+    histogram = ""
+    counts = item.get("childStatusCounts") or {}
+    if counts:
+        order = ["idea", "planned", "in_progress", "completed", "archived"]
+        parts = [f"{counts[s]} {s}" for s in order if counts.get(s)]
+        histogram = " · children: " + " · ".join(parts) if parts else ""
+    elif is_epic:
+        histogram = " · (no items yet)"
+    num_str = f"#{number} " if number else ""
+    epic_tag = "[EPIC] " if is_epic else ""
+    print(f"  {pad}[{pri_marker}] {num_str}{epic_tag}{title}{histogram}")
+    print(f"       {pad}{status}{promoted}")
+
+
+def _resolve_backlog_id(headers, service_url, project_id, ref):
+    """Resolve a backlog reference (uuid, '#42', or '42') to its uuid id within a project.
+
+    Returns (id, item_dict) or (None, None) if not found.
+    """
+    if not ref:
+        return (None, None)
+    s = str(ref).lstrip("#").strip()
+    # If it looks like a UUID (has dashes), treat as id
+    if "-" in s and len(s) >= 32:
+        # Fetch via list (single round-trip, project-scoped)
+        url = f"{service_url}/api/portal/projects/{project_id}/backlog"
+        sc, body = api_request(url, headers=headers)
+        if sc != 200:
+            return (None, None)
+        for it in json.loads(body):
+            if it.get("id") == s:
+                return (s, it)
+        return (None, None)
+    # Otherwise treat as numeric #N
+    try:
+        n = int(s)
+    except ValueError:
+        return (None, None)
+    url = f"{service_url}/api/portal/projects/{project_id}/backlog"
+    sc, body = api_request(url, headers=headers)
+    if sc != 200:
+        return (None, None)
+    for it in json.loads(body):
+        if it.get("number") == n:
+            return (it.get("id"), it)
+    return (None, None)
+
+
+def create_backlog_item(project_id, title, description=None, priority="medium", parent=None, is_epic=False):
+    """Create a new backlog item. `parent` may be a uuid or a numeric #N reference.
+    `is_epic=True` marks this item as an epic (can have children, can't have a parent)."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    if is_epic and parent:
+        print("specs: --epic and --parent are mutually exclusive (epics can't have a parent)", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    parent_id = None
+    if parent:
+        parent_id, parent_item = _resolve_backlog_id(headers, service_url, project_id, parent)
+        if not parent_id:
+            print(f"specs: parent '{parent}' not found in project '{project_id}'", file=sys.stderr)
+            sys.exit(1)
+        if not parent_item.get("isEpic"):
+            print(f"specs: '#{parent_item.get('number')}' is not an epic — only epics can have children", file=sys.stderr)
+            sys.exit(1)
+
+    url = f"{service_url}/api/portal/projects/{project_id}/backlog"
+    payload = {"title": title, "description": description, "priority": priority}
+    if parent_id:
+        payload["parentId"] = parent_id
+    if is_epic:
+        payload["isEpic"] = True
+
+    try:
+        status_code, body = api_request(
+            url, method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data=payload,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to create backlog item — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        print(f"specs: failed to create backlog item (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    item = json.loads(body)
+    kind = "epic" if is_epic else "backlog item"
+    parent_note = f" under epic '{parent}'" if parent_id else ""
+    print(f"specs: created {kind} '{item.get('title')}' in '{project_id}' (priority: {item.get('priority')}){parent_note}")
+
+
+def set_backlog_parent(project_id, item_ref, parent_ref):
+    """Set or clear the parent of a backlog item. parent_ref of 'none' clears."""
     cfg = config.read_config()
     if not cfg:
         print("specs: no config found", file=sys.stderr)
@@ -2008,24 +2152,46 @@ def create_backlog_item(project_id, title, description=None, priority="medium"):
         sys.exit(1)
 
     service_url = cfg["service_url"]
-    url = f"{service_url}/api/portal/projects/{project_id}/backlog"
 
+    item_id, item = _resolve_backlog_id(headers, service_url, project_id, item_ref)
+    if not item_id:
+        print(f"specs: item '{item_ref}' not found in project '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    if str(parent_ref).lower() in ("none", "null", ""):
+        new_parent_id = None
+    else:
+        new_parent_id, new_parent_item = _resolve_backlog_id(headers, service_url, project_id, parent_ref)
+        if not new_parent_id:
+            print(f"specs: parent '{parent_ref}' not found in project '{project_id}'", file=sys.stderr)
+            sys.exit(1)
+        if not new_parent_item.get("isEpic"):
+            print(f"specs: '#{new_parent_item.get('number')}' is not an epic — only epics can have children", file=sys.stderr)
+            sys.exit(1)
+
+    url = f"{service_url}/api/portal/backlog/{item_id}"
     try:
         status_code, body = api_request(
-            url, method="POST",
+            url, method="PATCH",
             headers={**headers, "Content-Type": "application/json"},
-            data={"title": title, "description": description, "priority": priority},
+            data={"parentId": new_parent_id},
         )
     except ConnectionError as e:
-        print(f"specs: failed to create backlog item — {e}", file=sys.stderr)
+        print(f"specs: failed to update parent — {e}", file=sys.stderr)
         sys.exit(1)
 
     if status_code not in (200, 201):
-        print(f"specs: failed to create backlog item (HTTP {status_code}): {body}", file=sys.stderr)
+        try:
+            err = json.loads(body).get("error", body)
+        except (json.JSONDecodeError, AttributeError):
+            err = body
+        print(f"specs: failed to update parent (HTTP {status_code}): {err}", file=sys.stderr)
         sys.exit(1)
 
-    item = json.loads(body)
-    print(f"specs: created backlog item '{item.get('title')}' in '{project_id}' (priority: {item.get('priority')})")
+    if new_parent_id:
+        print(f"specs: '#{item.get('number')}' is now a child of '{parent_ref}'")
+    else:
+        print(f"specs: '#{item.get('number')}' parent cleared (now top-level)")
 
 
 def _embed_images(description, image_paths):
@@ -2971,15 +3137,46 @@ def main():
         sev = filtered[3] if len(filtered) > 3 else "medium"
         create_bug(filtered[0], filtered[1], filtered[2], sev, images or None)
     elif cmd == "backlog":
-        proj = args[1] if len(args) > 1 and not args[1].startswith("-") else None
-        list_backlog(proj)
+        # Spec 013: --epics / --flat / --status / --priority
+        positional = [a for a in args[1:] if not a.startswith("--")]
+        proj = positional[0] if positional else None
+        view = "tree"
+        if "--epics" in args: view = "epics"
+        elif "--flat" in args: view = "flat"
+        status_filter = None
+        priority_filter = None
+        for i, a in enumerate(args):
+            if a == "--status" and i + 1 < len(args): status_filter = args[i + 1]
+            if a == "--priority" and i + 1 < len(args): priority_filter = args[i + 1]
+        list_backlog(proj, view=view, status_filter=status_filter, priority_filter=priority_filter)
     elif cmd == "backlog-add":
-        if len(args) < 3:
-            print("Usage: specs-cli.py backlog-add <project-id> <title> [description] [priority]", file=sys.stderr)
+        # Spec 013: --parent <id-or-#N> and --epic
+        skip_next = False
+        positional = []
+        for i, a in enumerate(args[1:], 1):
+            if skip_next:
+                skip_next = False
+                continue
+            if a.startswith("--"):
+                if a == "--parent" and i + 1 < len(args):
+                    skip_next = True
+                continue
+            positional.append(a)
+        if len(positional) < 2:
+            print("Usage: specs-cli.py backlog-add <project-id> <title> [description] [priority] [--parent <id-or-#N>] [--epic]", file=sys.stderr)
             sys.exit(1)
-        desc = args[3] if len(args) > 3 else None
-        pri = args[4] if len(args) > 4 else "medium"
-        create_backlog_item(args[1], args[2], desc, pri)
+        desc = positional[2] if len(positional) > 2 else None
+        pri = positional[3] if len(positional) > 3 else "medium"
+        parent_val = None
+        for i, a in enumerate(args):
+            if a == "--parent" and i + 1 < len(args): parent_val = args[i + 1]
+        is_epic_flag = "--epic" in args
+        create_backlog_item(positional[0], positional[1], desc, pri, parent=parent_val, is_epic=is_epic_flag)
+    elif cmd == "backlog-set-parent":
+        if len(args) < 4:
+            print("Usage: specs-cli.py backlog-set-parent <project-id> <item-id-or-#N> <parent-id-or-#N|none>", file=sys.stderr)
+            sys.exit(1)
+        set_backlog_parent(args[1], args[2], args[3])
     elif cmd == "create-feature":
         if len(args) < 3:
             print("Usage: specs-cli.py create-feature <project-id> <name> [--status STATUS] [--description TEXT]", file=sys.stderr)
