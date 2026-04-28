@@ -56,6 +56,8 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/awolve-spec:backlog` — List backlog items (tree by default; `--epics`, `--flat`, `--status`, `--priority` flags)
 - `/awolve-spec:backlog-add` — Add a backlog item (`--parent <id-or-#N>` nests under an epic, `--epic` creates an empty epic placeholder)
 - `/awolve-spec:backlog-set-parent` — Reparent an existing backlog item (or pass `none` to clear)
+- `/awolve-spec:backlog-update` — Update title/description/priority/status on an existing item
+- `/awolve-spec:backlog-delete` — Soft-delete an item (cascades to children if it's an epic)
 - `/awolve-spec:bugs` — List open bugs for a project
 - `/awolve-spec:view-bug` — Show full details of a single bug (description, severity, repro)
 - `/awolve-spec:bug` — Report a new bug
@@ -94,6 +96,8 @@ Full subcommand surface:
 | `backlog [project-id] [--epics\|--flat] [--status STATUS] [--priority PRIORITY]` | List backlog items. Default = tree view (epic head + indented children). `--epics` filters to items where `isEpic = true` (including empty epics); `--flat` ignores hierarchy. |
 | `backlog-add <project-id> <title> [description] [priority] [--parent <id-or-#N>] [--epic]` | Add a backlog item. `--parent` nests it under an existing epic (parent must have `isEpic = true`); `--epic` creates the item as an epic placeholder. The two flags are mutually exclusive. |
 | `backlog-set-parent <project-id> <item-id-or-#N> <parent-id-or-#N\|none>` | Reparent an item (or pass `none` to detach). Errors include `parent_not_an_epic`, `parent_must_be_top_level`, `epic_has_children`, `child_cannot_be_epic`. |
+| `backlog-update <project-id> <item-id-or-#N> [--title T] [--description T] [--priority P] [--status S]` | Update fields on an existing item. At least one flag required. For parent/epic changes use `backlog-set-parent`. |
+| `backlog-delete <project-id> <item-id-or-#N>` | Soft-delete an item. If the item is an epic, the server cascades to all active children in one transaction. Confirm with the user before calling — destructive and visible in the portal. |
 | `service-status` | Health check |
 | `attach <file-path> [<project-id>/<feature-name>]` | Upload binary attachment |
 

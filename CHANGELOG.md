@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.1 — 2026-04-28
+
+**Fix (bug #14): backlog items can now be edited and deleted from the CLI.**
+
+- New subcommand `backlog-update <project> <item> [--title T] [--description T] [--priority P] [--status S]` patches fields on an existing item. At least one flag required. Parent/epic changes still go via `backlog-set-parent`.
+- New subcommand `backlog-delete <project> <item>` soft-deletes an item. If the item is an epic, the server cascades to all active children in one transaction. The portal already exposes both affordances; this closes the CLI gap.
+- New slash commands `/awolve-spec:backlog-update` and `/awolve-spec:backlog-delete`. The delete command instructs Claude to confirm with the user before calling — destructive and visible in the audit log.
+- SKILL.md reference table updated.
+
 ## 0.16.0 — 2026-04-22
 
 **Feature (spec 013): backlog hierarchy + filters + epic flag.**

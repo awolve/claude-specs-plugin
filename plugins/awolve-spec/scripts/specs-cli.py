@@ -38,6 +38,10 @@ Usage:
                                        — Create a backlog item; optional --parent makes it a child of an epic
     specs-cli.py backlog-set-parent <project-id> <item-id-or-#N> <parent-id-or-#N|none>
                                        — Reparent a backlog item (or pass 'none' to clear the parent)
+    specs-cli.py backlog-update <project-id> <item-id-or-#N> [--title T] [--description T] [--priority P] [--status S]
+                                       — Update fields on an existing backlog item
+    specs-cli.py backlog-delete <project-id> <item-id-or-#N>
+                                       — Soft-delete a backlog item (cascades to children)
     specs-cli.py bugs <project-id>     — List bugs for a project
     specs-cli.py bug <project-id> <title> <description> [severity] — Create a bug
     specs-cli.py view-bug <project-id> <bug-number> [--json]
@@ -2194,6 +2198,103 @@ def set_backlog_parent(project_id, item_ref, parent_ref):
         print(f"specs: '#{item.get('number')}' parent cleared (now top-level)")
 
 
+def update_backlog_item(project_id, item_ref, fields):
+    """Update title/description/priority/status on an existing backlog item.
+
+    `fields` is a dict of {api_key: value} to PATCH. Caller is responsible for
+    only passing keys the server understands. parentId/isEpic changes go via
+    set_backlog_parent for clearer error reporting.
+    """
+    if not fields:
+        print("specs: nothing to update — pass at least one of --title/--description/--priority/--status", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    item_id, item = _resolve_backlog_id(headers, service_url, project_id, item_ref)
+    if not item_id:
+        print(f"specs: item '{item_ref}' not found in project '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    url = f"{service_url}/api/portal/backlog/{item_id}"
+    try:
+        status_code, body = api_request(
+            url, method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data=fields,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to update item — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(body).get("error", body)
+        except (json.JSONDecodeError, AttributeError):
+            err = body
+        print(f"specs: failed to update item (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    changed = ", ".join(f"{k}={v!r}" for k, v in fields.items())
+    print(f"specs: updated '#{item.get('number')}' ({changed})")
+
+
+def delete_backlog_item(project_id, item_ref):
+    """Soft-delete a backlog item. The server cascades to active children."""
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+
+    item_id, item = _resolve_backlog_id(headers, service_url, project_id, item_ref)
+    if not item_id:
+        print(f"specs: item '{item_ref}' not found in project '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    url = f"{service_url}/api/portal/backlog/{item_id}"
+    try:
+        status_code, body = api_request(
+            url, method="DELETE",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to delete item — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 204):
+        try:
+            err = json.loads(body).get("error", body)
+        except (json.JSONDecodeError, AttributeError):
+            err = body
+        print(f"specs: failed to delete item (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    cascaded = 0
+    try:
+        cascaded = int(json.loads(body).get("cascadedChildren", 0))
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+        pass
+    suffix = f" (cascaded {cascaded} child item(s))" if cascaded else ""
+    print(f"specs: deleted '#{item.get('number')}: {item.get('title')}'{suffix}")
+
+
 def _embed_images(description, image_paths):
     """Append base64-encoded images to the description markdown."""
     import base64
@@ -3177,6 +3278,37 @@ def main():
             print("Usage: specs-cli.py backlog-set-parent <project-id> <item-id-or-#N> <parent-id-or-#N|none>", file=sys.stderr)
             sys.exit(1)
         set_backlog_parent(args[1], args[2], args[3])
+    elif cmd == "backlog-update":
+        # Bug #14: edit/delete affordance on the CLI to match the portal.
+        # Positional: <project-id> <item-id-or-#N>. Then one or more --title/--description/--priority/--status flags.
+        positional = []
+        flag_map = {"--title": "title", "--description": "description", "--priority": "priority", "--status": "status"}
+        fields = {}
+        skip_next = False
+        for i, a in enumerate(args[1:], 1):
+            if skip_next:
+                skip_next = False
+                continue
+            if a in flag_map:
+                if i + 1 >= len(args):
+                    print(f"specs: {a} requires a value", file=sys.stderr)
+                    sys.exit(1)
+                fields[flag_map[a]] = args[i + 1]
+                skip_next = True
+                continue
+            if a.startswith("--"):
+                print(f"specs: unknown flag '{a}' for backlog-update", file=sys.stderr)
+                sys.exit(1)
+            positional.append(a)
+        if len(positional) < 2:
+            print("Usage: specs-cli.py backlog-update <project-id> <item-id-or-#N> [--title T] [--description T] [--priority P] [--status S]", file=sys.stderr)
+            sys.exit(1)
+        update_backlog_item(positional[0], positional[1], fields)
+    elif cmd == "backlog-delete":
+        if len(args) < 3:
+            print("Usage: specs-cli.py backlog-delete <project-id> <item-id-or-#N>", file=sys.stderr)
+            sys.exit(1)
+        delete_backlog_item(args[1], args[2])
     elif cmd == "create-feature":
         if len(args) < 3:
             print("Usage: specs-cli.py create-feature <project-id> <name> [--status STATUS] [--description TEXT]", file=sys.stderr)
