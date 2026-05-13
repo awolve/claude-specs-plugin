@@ -54,10 +54,18 @@ Usage:
                                        — List comments on a bug
     specs-cli.py bug-comment <project-id> <bug-number> <body>
                                        — Add a comment to a bug
+    specs-cli.py edit-bug-comment <project-id> <bug-number> <comment-id> <body>
+                                       — Edit a bug comment (author or internal user). Audited.
+    specs-cli.py delete-bug-comment <project-id> <bug-number> <comment-id>
+                                       — Delete a bug comment (author or internal user). Hard delete, audited.
     specs-cli.py comments <file-path>  — List comments on a spec document
     specs-cli.py comment <file-path> <body> [--inline --anchor <text>]
                                        — Add a comment to a spec document
     specs-cli.py resolve-comment <comment-id> — Resolve a comment
+    specs-cli.py edit-comment <comment-id> <body>
+                                       — Edit a spec-doc comment (author only). Audited.
+    specs-cli.py delete-comment <comment-id>
+                                       — Delete a spec-doc comment (author only). Hard delete, audited.
     specs-cli.py reviews <file-path>   — List reviews on a spec document
     specs-cli.py review <file-path> <verdict> [body]
                                        — Submit a review (approved|changes_requested)
@@ -560,6 +568,70 @@ def resolve_comment(comment_id):
         sys.exit(1)
 
     print(f"specs: comment {comment_id} resolved")
+
+
+def edit_comment(comment_id, body_text):
+    """Edit the body of a spec-doc comment. Author-only on the server."""
+    if not body_text or not body_text.strip():
+        print("specs: comment body is required", file=sys.stderr)
+        sys.exit(1)
+
+    _, headers, service_url = _init_and_auth()
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/comments/{comment_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"body": body_text},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to edit comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 403:
+        print(f"specs: only the author can edit comment {comment_id}", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(resp).get("error", resp)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp
+        print(f"specs: failed to edit comment (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment {comment_id} edited")
+
+
+def delete_comment(comment_id):
+    """Delete a spec-doc comment. Author-only on the server. Hard delete."""
+    _, headers, service_url = _init_and_auth()
+
+    try:
+        status_code, resp = api_request(
+            f"{service_url}/api/comments/{comment_id}",
+            method="DELETE",
+            headers=headers,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to delete comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 403:
+        print(f"specs: only the author can delete comment {comment_id}", file=sys.stderr)
+        sys.exit(1)
+    if status_code == 404:
+        print(f"specs: comment {comment_id} not found", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 204):
+        try:
+            err = json.loads(resp).get("error", resp)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp
+        print(f"specs: failed to delete comment (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment {comment_id} deleted")
 
 
 # ---------------------------------------------------------------------------
@@ -2114,11 +2186,80 @@ def list_bug_comments(project_id, bug_number, as_json=False):
         author_type = c.get("authorType", "?")
         date = (c.get("createdAt") or "?")[:19].replace("T", " ")
         body_text = c.get("body", "")
+        comment_id = c.get("id", "?")
         tag = "internal" if author_type == "internal" else "external"
-        print(f"  {author} ({tag}) — {date}")
+        print(f"  {author} ({tag}) — {date}  [{comment_id}]")
         for line in body_text.splitlines() or [""]:
             print(f"    {line}")
         print()
+
+
+def edit_bug_comment(project_id, bug_number, comment_id, body_text):
+    """Edit a bug comment by its UUID. Author or internal user only on the server."""
+    if not body_text or not body_text.strip():
+        print("specs: comment body is required", file=sys.stderr)
+        sys.exit(1)
+
+    _, headers, service_url, bug = _resolve_bug(project_id, bug_number)
+    bug_id = bug["id"]
+    number = bug["number"]
+
+    url = f"{service_url}/api/portal/bugs/{bug_id}/comments/{comment_id}"
+    try:
+        status_code, resp = api_request(
+            url, method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"body": body_text},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to edit comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 403:
+        print(f"specs: only the author or an internal user can edit this comment", file=sys.stderr)
+        sys.exit(1)
+    if status_code == 404:
+        print(f"specs: comment {comment_id} not found on bug #{number}", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(resp).get("error", resp)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp
+        print(f"specs: failed to edit comment (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment {comment_id} on bug #{number} edited")
+
+
+def delete_bug_comment(project_id, bug_number, comment_id):
+    """Delete a bug comment by its UUID. Author or internal user only. Hard delete."""
+    _, headers, service_url, bug = _resolve_bug(project_id, bug_number)
+    bug_id = bug["id"]
+    number = bug["number"]
+
+    url = f"{service_url}/api/portal/bugs/{bug_id}/comments/{comment_id}"
+    try:
+        status_code, resp = api_request(url, method="DELETE", headers=headers)
+    except ConnectionError as e:
+        print(f"specs: failed to delete comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 403:
+        print(f"specs: only the author or an internal user can delete this comment", file=sys.stderr)
+        sys.exit(1)
+    if status_code == 404:
+        print(f"specs: comment {comment_id} not found on bug #{number}", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 204):
+        try:
+            err = json.loads(resp).get("error", resp)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp
+        print(f"specs: failed to delete comment (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment {comment_id} on bug #{number} deleted")
 
 
 def list_backlog(project_id=None, view="tree", status_filter=None, priority_filter=None):
@@ -3432,6 +3573,16 @@ def main():
             print("Usage: specs-cli.py bug-comment <project-id> <bug-number> <body>", file=sys.stderr)
             sys.exit(1)
         add_bug_comment(args[1], args[2], args[3])
+    elif cmd == "edit-bug-comment":
+        if len(args) < 5:
+            print("Usage: specs-cli.py edit-bug-comment <project-id> <bug-number> <comment-id> <body>", file=sys.stderr)
+            sys.exit(1)
+        edit_bug_comment(args[1], args[2], args[3], args[4])
+    elif cmd == "delete-bug-comment":
+        if len(args) < 4:
+            print("Usage: specs-cli.py delete-bug-comment <project-id> <bug-number> <comment-id>", file=sys.stderr)
+            sys.exit(1)
+        delete_bug_comment(args[1], args[2], args[3])
     elif cmd == "bug":
         # Parse --attach flags
         images = []
@@ -3597,6 +3748,16 @@ def main():
             print("Usage: specs-cli.py resolve-comment <comment-id>", file=sys.stderr)
             sys.exit(1)
         resolve_comment(args[1])
+    elif cmd == "edit-comment":
+        if len(args) < 3:
+            print("Usage: specs-cli.py edit-comment <comment-id> <body>", file=sys.stderr)
+            sys.exit(1)
+        edit_comment(args[1], args[2])
+    elif cmd == "delete-comment":
+        if len(args) < 2:
+            print("Usage: specs-cli.py delete-comment <comment-id>", file=sys.stderr)
+            sys.exit(1)
+        delete_comment(args[1])
     elif cmd == "reviews":
         if len(args) < 2:
             print("Usage: specs-cli.py reviews <file-path> [--json]", file=sys.stderr)

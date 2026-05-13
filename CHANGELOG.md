@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.3 — 2026-05-13
+
+**Feature: edit and delete comments from the CLI, with full audit coverage.**
+
+- New subcommand `edit-comment <comment-id> <body>` edits a spec-doc comment. Author-only on the server.
+- New subcommand `delete-comment <comment-id>` deletes a spec-doc comment. Author-only, hard delete.
+- New subcommand `edit-bug-comment <project> <#N> <comment-id> <body>` edits a bug comment. Author OR any internal user.
+- New subcommand `delete-bug-comment <project> <#N> <comment-id>` deletes a bug comment. Author OR any internal user, hard delete.
+- `bug-comments` listing now shows the comment UUID in brackets so users can copy it into edit/delete commands without going to the portal.
+- New slash commands `/awolve-spec:edit-comment`, `/awolve-spec:delete-comment`, `/awolve-spec:edit-bug-comment`, `/awolve-spec:delete-bug-comment`. Delete commands instruct Claude to confirm with the user first.
+
+Every body edit is now audited:
+- Bug comments — `bug_comment.update` audit event (already existed; CLI just exposes it).
+- Spec-doc comments — `comment.update` audit event. Previously body edits were silent on the doc side. **Requires spec-service v0.25.1**, which adds the audit event with a 100-char preview of the previous body in `metadata.previousBodyExcerpt`.
+
 ## 0.16.2 — 2026-05-13
 
 **Fix (bug #15): bugs can now be edited and commented on from the CLI.**

@@ -65,6 +65,10 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/awolve-spec:set-bug-status` — Change a bug's status (open/triaged/in_progress/resolved/closed)
 - `/awolve-spec:bug-comments` — List comments on a bug
 - `/awolve-spec:bug-comment` — Add a comment to a bug (attach commit SHA, version, rollout notes)
+- `/awolve-spec:edit-bug-comment` — Edit a bug comment. Author or any internal user; audited (`bug_comment.update`).
+- `/awolve-spec:delete-bug-comment` — Delete a bug comment. Author or any internal user; hard delete with audit excerpt.
+- `/awolve-spec:edit-comment` — Edit a spec-doc comment. Author only; audited (`comment.update`).
+- `/awolve-spec:delete-comment` — Delete a spec-doc comment. Author only; hard delete with audit excerpt.
 
 ## specs-cli.py reference
 
@@ -93,8 +97,12 @@ Full subcommand surface:
 | `bug <project-id> <title> <description> [severity] [--attach file ...]` | Report a bug |
 | `update-bug <project-id> <bug-number> [--title T] [--description T] [--severity S]` | Edit a bug's title, description, or severity. For status changes use `set-bug-status`; to attach resolution notes prefer `bug-comment` so the original report stays intact. |
 | `set-bug-status <project-id> <bug-number> <status>` | Change bug status (open/triaged/in_progress/resolved/closed) |
-| `bug-comments <project-id> <bug-number> [--json]` | List the comment thread on a bug (oldest-first) |
+| `bug-comments <project-id> <bug-number> [--json]` | List the comment thread on a bug (oldest-first). Comment UUIDs shown in brackets so they can be passed to edit/delete commands. |
 | `bug-comment <project-id> <bug-number> <body>` | Add a comment to a bug |
+| `edit-bug-comment <project-id> <bug-number> <comment-id> <body>` | Edit a bug comment (author or internal user). Audited. |
+| `delete-bug-comment <project-id> <bug-number> <comment-id>` | Delete a bug comment (author or internal user). Hard delete, audited. Confirm with user before calling — visible. |
+| `edit-comment <comment-id> <body>` | Edit a spec-doc comment (author only). Audited (`comment.update`). |
+| `delete-comment <comment-id>` | Delete a spec-doc comment (author only). Hard delete, audited. Confirm with user before calling — visible. |
 | `comments <file-path>` / `comment <file-path> <body> [--inline --anchor <text>]` | Read / add comments |
 | `resolve-comment <comment-id>` | Resolve a comment |
 | `reviews <file-path>` / `review <file-path> <verdict> [body]` | Read / submit reviews |

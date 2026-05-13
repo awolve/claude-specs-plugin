@@ -51,6 +51,10 @@ Print the following command reference. Do NOT run any scripts — just display t
 | `/awolve-spec:set-bug-status` | Change a bug's status |
 | `/awolve-spec:bug-comments` | List comments on a bug |
 | `/awolve-spec:bug-comment` | Add a comment to a bug |
+| `/awolve-spec:edit-bug-comment` | Edit a bug comment (author or internal user) |
+| `/awolve-spec:delete-bug-comment` | Delete a bug comment (author or internal user) |
+| `/awolve-spec:edit-comment` | Edit a spec-doc comment (author only) |
+| `/awolve-spec:delete-comment` | Delete a spec-doc comment (author only) |
 
 ### Skill
 | Skill | Description |
