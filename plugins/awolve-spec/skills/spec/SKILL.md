@@ -61,7 +61,10 @@ Each phase is a separate command invocation. Do not write multiple spec files in
 - `/awolve-spec:bugs` — List open bugs for a project
 - `/awolve-spec:view-bug` — Show full details of a single bug (description, severity, repro)
 - `/awolve-spec:bug` — Report a new bug
+- `/awolve-spec:update-bug` — Edit a bug's title, description, or severity
 - `/awolve-spec:set-bug-status` — Change a bug's status (open/triaged/in_progress/resolved/closed)
+- `/awolve-spec:bug-comments` — List comments on a bug
+- `/awolve-spec:bug-comment` — Add a comment to a bug (attach commit SHA, version, rollout notes)
 
 ## specs-cli.py reference
 
@@ -88,7 +91,10 @@ Full subcommand surface:
 | `bugs <project-id>` | List open bugs (tabular summary only) |
 | `view-bug <project-id> <bug-number> [--json]` | Full bug details |
 | `bug <project-id> <title> <description> [severity] [--attach file ...]` | Report a bug |
+| `update-bug <project-id> <bug-number> [--title T] [--description T] [--severity S]` | Edit a bug's title, description, or severity. For status changes use `set-bug-status`; to attach resolution notes prefer `bug-comment` so the original report stays intact. |
 | `set-bug-status <project-id> <bug-number> <status>` | Change bug status (open/triaged/in_progress/resolved/closed) |
+| `bug-comments <project-id> <bug-number> [--json]` | List the comment thread on a bug (oldest-first) |
+| `bug-comment <project-id> <bug-number> <body>` | Add a comment to a bug |
 | `comments <file-path>` / `comment <file-path> <body> [--inline --anchor <text>]` | Read / add comments |
 | `resolve-comment <comment-id>` | Resolve a comment |
 | `reviews <file-path>` / `review <file-path> <verdict> [body]` | Read / submit reviews |
@@ -105,7 +111,7 @@ Service base URL lives in `~/.claude-specs/config.yaml` (`service_url`). The por
 
 ### Conventions when calling the CLI directly
 
-- Pass `--json` where available (`comments`, `reviews`, `versions`, `log`, `view-bug`) when you need to parse output.
+- Pass `--json` where available (`comments`, `reviews`, `versions`, `log`, `view-bug`, `bug-comments`) when you need to parse output.
 - Never pass a numeric prefix to `create-feature <name>` — the service rejects it with HTTP 500 and auto-numbers the feature anyway.
 - Feature identifiers in URLs and subcommand arguments are the folder name (e.g. `030-terminal-resume-session`), not the UUID.
 

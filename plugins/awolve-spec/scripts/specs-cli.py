@@ -48,6 +48,12 @@ Usage:
                                        — Show full details of a single bug (description, severity, repro, etc.)
     specs-cli.py set-bug-status <project-id> <bug-number> <status>
                                        — Change a bug's status (open|triaged|in_progress|resolved|closed)
+    specs-cli.py update-bug <project-id> <bug-number> [--title T] [--description T] [--severity S]
+                                       — Edit a bug's title, description, or severity
+    specs-cli.py bug-comments <project-id> <bug-number> [--json]
+                                       — List comments on a bug
+    specs-cli.py bug-comment <project-id> <bug-number> <body>
+                                       — Add a comment to a bug
     specs-cli.py comments <file-path>  — List comments on a spec document
     specs-cli.py comment <file-path> <body> [--inline --anchor <text>]
                                        — Add a comment to a spec document
@@ -1948,6 +1954,173 @@ def set_bug_status(project_id, bug_number, status):
     print(f"specs: bug #{number} '{match.get('title', '')}' → {status}")
 
 
+def _resolve_bug(project_id, bug_number):
+    """Resolve a bug short number to its full row. Returns (cfg, headers, service_url, bug).
+
+    Exits with a helpful error if config/auth/project/number are wrong or the bug
+    is missing. Used by every bug command that takes a `#N` argument.
+    """
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    service_url = cfg["service_url"]
+    projects = [p for p in cfg["projects"] if p["id"] == project_id]
+    if not projects:
+        print(f"specs: project '{project_id}' not in config", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        number = int(str(bug_number).lstrip("#"))
+    except ValueError:
+        print(f"specs: bug number must be an integer, got '{bug_number}'", file=sys.stderr)
+        sys.exit(1)
+
+    list_url = f"{service_url}/api/portal/projects/{project_id}/bugs"
+    try:
+        status_code, body = api_request(list_url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: failed to fetch bugs — {e}", file=sys.stderr)
+        sys.exit(1)
+    if status_code != 200:
+        print(f"specs: failed to fetch bugs (HTTP {status_code})", file=sys.stderr)
+        sys.exit(1)
+
+    bugs = json.loads(body)
+    match = next((b for b in bugs if b.get("number") == number), None)
+    if not match:
+        print(f"specs: bug #{number} not found in '{project_id}'", file=sys.stderr)
+        sys.exit(1)
+
+    return cfg, headers, service_url, match
+
+
+def update_bug(project_id, bug_number, fields):
+    """Update title/description/severity on an existing bug.
+
+    `fields` is a dict of {api_key: value} to PATCH. Status changes go via
+    set_bug_status for clearer audit semantics.
+    """
+    if not fields:
+        print("specs: nothing to update — pass at least one of --title/--description/--severity", file=sys.stderr)
+        sys.exit(1)
+
+    if "severity" in fields and fields["severity"] not in BUG_SEVERITIES:
+        print(f"specs: invalid severity '{fields['severity']}'. Valid: {', '.join(BUG_SEVERITIES)}", file=sys.stderr)
+        sys.exit(1)
+
+    _, headers, service_url, bug = _resolve_bug(project_id, bug_number)
+    bug_id = bug["id"]
+    number = bug["number"]
+
+    url = f"{service_url}/api/portal/bugs/{bug_id}"
+    try:
+        status_code, body = api_request(
+            url, method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data=fields,
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to update bug — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(body).get("error", body)
+        except (json.JSONDecodeError, AttributeError):
+            err = body
+        print(f"specs: failed to update bug #{number} (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    changed = ", ".join(f"{k}={v!r}" for k, v in fields.items())
+    print(f"specs: updated bug #{number} ({changed})")
+
+
+def add_bug_comment(project_id, bug_number, body_text):
+    """Add a comment to a bug by its short number."""
+    if not body_text or not body_text.strip():
+        print("specs: comment body is required", file=sys.stderr)
+        sys.exit(1)
+
+    _, headers, service_url, bug = _resolve_bug(project_id, bug_number)
+    bug_id = bug["id"]
+    number = bug["number"]
+
+    url = f"{service_url}/api/portal/bugs/{bug_id}/comments"
+    try:
+        status_code, resp = api_request(
+            url, method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"body": body_text},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to add comment — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(resp).get("error", resp)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp
+        print(f"specs: failed to add comment (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: comment added to bug #{number}")
+
+
+def list_bug_comments(project_id, bug_number, as_json=False):
+    """List comments on a bug by its short number.
+
+    Uses the bug detail endpoint which bundles comments into the response.
+    """
+    _, headers, service_url, bug = _resolve_bug(project_id, bug_number)
+    bug_id = bug["id"]
+    number = bug["number"]
+
+    url = f"{service_url}/api/portal/bugs/{bug_id}"
+    try:
+        status_code, body = api_request(url, headers=headers)
+    except ConnectionError as e:
+        print(f"specs: failed to fetch bug — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code != 200:
+        print(f"specs: failed to fetch bug #{number} (HTTP {status_code}): {body}", file=sys.stderr)
+        sys.exit(1)
+
+    detail = json.loads(body)
+    comments = detail.get("comments") or []
+    # Server returns newest-first; show oldest-first so the thread reads chronologically.
+    comments = list(reversed(comments))
+
+    if as_json:
+        print(json.dumps(comments, indent=2))
+        return
+
+    if not comments:
+        print(f"specs: no comments on bug #{number}")
+        return
+
+    print(f"specs: {len(comments)} comment(s) on bug #{number}")
+    print()
+    for c in comments:
+        author = c.get("author", "?")
+        author_type = c.get("authorType", "?")
+        date = (c.get("createdAt") or "?")[:19].replace("T", " ")
+        body_text = c.get("body", "")
+        tag = "internal" if author_type == "internal" else "external"
+        print(f"  {author} ({tag}) — {date}")
+        for line in body_text.splitlines() or [""]:
+            print(f"    {line}")
+        print()
+
+
 def list_backlog(project_id=None, view="tree", status_filter=None, priority_filter=None):
     """List backlog items for a project or all configured projects.
 
@@ -3220,6 +3393,45 @@ def main():
             print(f"  Statuses: {', '.join(BUG_STATUSES)}", file=sys.stderr)
             sys.exit(1)
         set_bug_status(args[1], args[2], args[3])
+    elif cmd == "update-bug":
+        # Bug #15: edit affordance on the CLI to match the portal. Mirrors
+        # `backlog-update` so the two flows feel consistent.
+        positional = []
+        flag_map = {"--title": "title", "--description": "description", "--severity": "severity"}
+        fields = {}
+        skip_next = False
+        for i, a in enumerate(args[1:], 1):
+            if skip_next:
+                skip_next = False
+                continue
+            if a in flag_map:
+                if i + 1 >= len(args):
+                    print(f"specs: {a} requires a value", file=sys.stderr)
+                    sys.exit(1)
+                fields[flag_map[a]] = args[i + 1]
+                skip_next = True
+                continue
+            if a.startswith("--"):
+                print(f"specs: unknown flag '{a}' for update-bug", file=sys.stderr)
+                sys.exit(1)
+            positional.append(a)
+        if len(positional) < 2:
+            print("Usage: specs-cli.py update-bug <project-id> <bug-number> [--title T] [--description T] [--severity S]", file=sys.stderr)
+            print(f"  Severities: {', '.join(BUG_SEVERITIES)}", file=sys.stderr)
+            sys.exit(1)
+        update_bug(positional[0], positional[1], fields)
+    elif cmd == "bug-comments":
+        as_json = "--json" in args
+        positional = [a for a in args[1:] if a != "--json"]
+        if len(positional) < 2:
+            print("Usage: specs-cli.py bug-comments <project-id> <bug-number> [--json]", file=sys.stderr)
+            sys.exit(1)
+        list_bug_comments(positional[0], positional[1], as_json=as_json)
+    elif cmd == "bug-comment":
+        if len(args) < 4:
+            print("Usage: specs-cli.py bug-comment <project-id> <bug-number> <body>", file=sys.stderr)
+            sys.exit(1)
+        add_bug_comment(args[1], args[2], args[3])
     elif cmd == "bug":
         # Parse --attach flags
         images = []

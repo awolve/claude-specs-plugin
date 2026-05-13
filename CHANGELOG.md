@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.2 — 2026-05-13
+
+**Fix (bug #15): bugs can now be edited and commented on from the CLI.**
+
+- New subcommand `update-bug <project> <bug-number> [--title T] [--description T] [--severity S]` patches title/description/severity on an existing bug. At least one flag required. Status changes still go via `set-bug-status` so the audit log gets a dedicated `status_change` event.
+- New subcommand `bug-comment <project> <bug-number> <body>` adds a comment to a bug — for attaching commit SHAs, package versions, or rollout notes without rewriting the original report.
+- New subcommand `bug-comments <project> <bug-number> [--json]` lists the comment thread (oldest-first), with author + author type + timestamp on each entry.
+- New slash commands `/awolve-spec:update-bug`, `/awolve-spec:bug-comment`, `/awolve-spec:bug-comments`. Shapes mirror the existing `backlog-update` / `comment` / `comments` commands so the two flows feel consistent.
+- SKILL.md reference table and `/awolve-spec:help` updated.
+
+No spec-service version bump required — backend PATCH `/api/portal/bugs/:id` and POST `/api/portal/bugs/:id/comments` already exist.
+
 ## 0.16.1 — 2026-04-28
 
 **Fix (bug #14): backlog items can now be edited and deleted from the CLI.**

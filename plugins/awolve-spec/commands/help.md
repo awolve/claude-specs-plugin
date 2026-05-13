@@ -46,6 +46,11 @@ Print the following command reference. Do NOT run any scripts — just display t
 | `/awolve-spec:backlog-add` | Add a new idea or feature request to the backlog |
 | `/awolve-spec:bugs` | List open bugs |
 | `/awolve-spec:bug` | Report a new bug |
+| `/awolve-spec:view-bug` | Show full details of a single bug |
+| `/awolve-spec:update-bug` | Edit a bug's title, description, or severity |
+| `/awolve-spec:set-bug-status` | Change a bug's status |
+| `/awolve-spec:bug-comments` | List comments on a bug |
+| `/awolve-spec:bug-comment` | Add a comment to a bug |
 
 ### Skill
 | Skill | Description |
