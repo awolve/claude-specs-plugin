@@ -37,6 +37,8 @@ Print the following command reference. Do NOT run any scripts — just display t
 | `/awolve-spec:rename-doc` | Rename a document |
 | `/awolve-spec:delete-doc` | Delete a document |
 | `/awolve-spec:set-status` | Change the status of a feature or document |
+| `/awolve-spec:set-description` | Set or clear a feature's short description |
+| `/awolve-spec:set-title` | Update a feature's display title without renaming the slug |
 | `/awolve-spec:attach` | Upload a binary file as an attachment to a feature |
 
 ### Backlog & Bugs

@@ -84,6 +84,7 @@ Full subcommand surface:
 | `log <project-id\|--all> [--since DUR] [--json] [--since-last-visit] [--mark-read]` | Audit log stream |
 | `set-status <id> <status>` | Change feature or document status |
 | `set-description <feature-id> <text>` | Set or clear feature shortDescription |
+| `set-title <feature-id> <text>` | Update a feature's display title without renaming the slug (separate from `rename-feature` which changes both name + title in one call) |
 | `create-feature <project-id> <name> [--status] [--description]` | Create feature (service auto-assigns the number — do NOT include a numeric prefix in `<name>`) |
 | `create-doc <project-id> <feature-name> <filename>` | Add a document to a feature |
 | `rename-feature <project-id> <old> <new>` | Rename feature folder + service |

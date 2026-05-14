@@ -16,6 +16,8 @@ Usage:
     specs-cli.py set-status <id> <status> — Set feature or document status
     specs-cli.py set-description <feature-id> <text>
                                        — Set or clear a feature's shortDescription (pass "" to clear)
+    specs-cli.py set-title <feature-id> <text>
+                                       — Update a feature's display title without renaming the slug
     specs-cli.py create-feature <project-id> <name> [--status STATUS] [--description TEXT]
                                        — Create a new feature in a project
     specs-cli.py create-doc <project-id> <feature-name> <filename>
@@ -2755,6 +2757,60 @@ def set_description(feature_id, description):
         print(f"specs: feature {feature_id} description updated")
 
 
+def set_title(feature_id, title):
+    """Update a feature's display title without renaming the slug.
+
+    The portal's feature list and detail headers read from `title`, not from
+    the slug — so this is the right command when the slug is fine but the
+    human-readable name needs a touch-up (e.g. fixing the every-word-capitalized
+    output of the auto-derivation during rename).
+    """
+    if not title or not title.strip():
+        print("specs: title must be non-empty (use rename-feature to change the slug)", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = config.read_config()
+    if not cfg:
+        print("specs: no config found", file=sys.stderr)
+        sys.exit(1)
+
+    headers = auth.get_headers()
+    if not headers:
+        print("specs: not authenticated — run /awolve-spec:login first", file=sys.stderr)
+        sys.exit(1)
+
+    if "/" not in feature_id:
+        print(f"specs: feature id must be 'project/name' (got '{feature_id}')", file=sys.stderr)
+        sys.exit(1)
+
+    import urllib.parse
+    service_url = cfg["service_url"]
+    encoded_id = urllib.parse.quote(feature_id, safe="")
+    try:
+        status_code, resp_body = api_request(
+            f"{service_url}/api/features/lookup?id={encoded_id}",
+            method="PATCH",
+            headers={**headers, "Content-Type": "application/json"},
+            data={"title": title},
+        )
+    except ConnectionError as e:
+        print(f"specs: failed to update title — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if status_code == 404:
+        print(f"specs: feature '{feature_id}' not found", file=sys.stderr)
+        sys.exit(1)
+    if status_code not in (200, 201):
+        try:
+            err = json.loads(resp_body).get("error", resp_body)
+        except (json.JSONDecodeError, AttributeError):
+            err = resp_body
+        print(f"specs: failed to update title (HTTP {status_code}): {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"specs: feature {feature_id} title → {title!r}")
+
+
 def create_feature(project_id, name, initial_status="specifying", description=None):
     """Create a new feature in a project."""
     cfg = config.read_config()
@@ -3717,6 +3773,11 @@ def main():
             print("Usage: specs-cli.py set-description <feature-id> <text>", file=sys.stderr)
             sys.exit(1)
         set_description(args[1], args[2])
+    elif cmd == "set-title":
+        if len(args) < 3:
+            print("Usage: specs-cli.py set-title <feature-id> <text>", file=sys.stderr)
+            sys.exit(1)
+        set_title(args[1], args[2])
     elif cmd == "create-doc":
         if len(args) < 4:
             print("Usage: specs-cli.py create-doc <project-id> <feature-name> <filename>", file=sys.stderr)

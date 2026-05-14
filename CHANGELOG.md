@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.16.5 — 2026-05-14
+
+**Fix (bug #12): add `set-title` so feature display titles can be edited without renaming the slug.**
+
+New subcommand `set-title <feature-id> <text>` updates a feature's display title alone via `PATCH /api/features/lookup?id=...`. Mirrors the existing `set-description` shape. The backend route already supported title-only updates; this just closes the CLI gap that bug #12 flagged.
+
+When to use which:
+- `rename-feature` — slug *and* title change together (e.g. you got the slug wrong)
+- `set-title` — slug is fine, just touch up the human-readable name (e.g. fix the every-word-capitalized output of the auto-derivation)
+- `set-description` — short summary
+- `set-status` — feature/document status
+
+New slash command `/awolve-spec:set-title`. help.md + SKILL.md updated.
+
+The bug's other concern — "rename-feature only updates slug, not display name" — was already addressed by v0.15.3 (sends title alongside name) + spec-service v0.22.x (accepts title on rename). Live-verified during this fix.
+
 ## 0.16.4 — 2026-05-14
 
 **Fix (paired with spec-service v0.25.2 / bug #16): clearer error when a local project isn't registered server-side.**
