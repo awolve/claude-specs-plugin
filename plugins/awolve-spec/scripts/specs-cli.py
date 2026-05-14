@@ -2447,6 +2447,20 @@ def create_backlog_item(project_id, title, description=None, priority="medium", 
         print(f"specs: failed to create backlog item — {e}", file=sys.stderr)
         sys.exit(1)
 
+    if status_code == 404:
+        try:
+            err_body = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            err_body = {}
+        if err_body.get("error") == "project_not_found":
+            print(
+                f"specs: project '{project_id}' is not registered with the spec service.\n"
+                f"       Your local config lists it, but the server doesn't know about it.\n"
+                f"       Run `python3 scripts/bootstrap-specs.py {project_id} <specs-path>` from ops-cortex-core,\n"
+                f"       or check the canonical list via the portal at /api/portal/projects.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     if status_code not in (200, 201):
         print(f"specs: failed to create backlog item (HTTP {status_code}): {body}", file=sys.stderr)
         sys.exit(1)
@@ -2658,6 +2672,20 @@ def create_bug(project_id, title, description, severity="medium", image_paths=No
         print(f"specs: failed to create bug — {e}", file=sys.stderr)
         sys.exit(1)
 
+    if status_code == 404:
+        try:
+            err_body = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            err_body = {}
+        if err_body.get("error") == "project_not_found":
+            print(
+                f"specs: project '{project_id}' is not registered with the spec service.\n"
+                f"       Your local config lists it, but the server doesn't know about it.\n"
+                f"       Run `python3 scripts/bootstrap-specs.py {project_id} <specs-path>` from ops-cortex-core,\n"
+                f"       or check the canonical list via the portal at /api/portal/projects.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     if status_code not in (200, 201):
         print(f"specs: failed to create bug (HTTP {status_code}): {body}", file=sys.stderr)
         sys.exit(1)

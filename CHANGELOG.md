@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.4 — 2026-05-14
+
+**Fix (paired with spec-service v0.25.2 / bug #16): clearer error when a local project isn't registered server-side.**
+
+When `bug` or `backlog-add` hits a project that the spec service doesn't know about (e.g. it's in your local `projects.md` but was never bootstrapped), the server now returns `404 project_not_found` instead of a generic 500. The CLI surfaces this with a multi-line explanation pointing at `scripts/bootstrap-specs.py` and `GET /api/portal/projects` for the canonical list — so a Mattias-style "regardless of payload, it 500s" report won't recur.
+
+Requires spec-service v0.25.2.
+
 ## 0.16.3 — 2026-05-13
 
 **Feature: edit and delete comments from the CLI, with full audit coverage.**
