@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.6 — 2026-05-16
+
+**Fix (specs-plugin bug #2, Option 2): skip push + writeback when body content hasn't changed.**
+
+`push()` now hashes the (frontmatter-stripped) body and compares to the frontmatter's `last_synced_hash`. If they match, the server already has this exact content — return early, no HTTP call, no `atomic_write` rewrite. Every Edit on a spec file no longer guarantees a OneDrive-visible filesystem event; only Edits that actually change body content do.
+
+Why this matters: the unconditional writeback was a major source of OneDrive `.remote` conflict copies on collaboratively-edited specs (14 on `studyalong-genai/033-vikariehantering`, 12 on `037-utbetalningsregler` in the May audit). This patch addresses Pattern A (same-machine churn from multi-Edit Claude tasks or formatter-style rewrites). Pattern B (cross-machine concurrent edits) remains — if `.remote` files keep appearing on the active specs after a week, escalate to Option 4 (auto-pull-and-rebase on 409) per the bug's recommended sequence.
+
+Smoke-test: pushing an unchanged spec is now a true no-op (zero stdout, exit 0, mtime + inode unchanged).
+
 ## 0.16.5 — 2026-05-14
 
 **Fix (bug #12): add `set-title` so feature display titles can be edited without renaming the slug.**

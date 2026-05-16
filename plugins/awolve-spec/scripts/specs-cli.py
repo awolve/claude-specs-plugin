@@ -1536,6 +1536,18 @@ def push(file_path):
     # Safety: strip any leaked frontmatter from body (e.g. double frontmatter)
     body = strip_frontmatter(body)
 
+    # Bug #2: skip push + writeback when body hash matches last_synced_hash.
+    # Server already has this exact content; pushing anyway re-runs the
+    # frontmatter writeback (atomic_write of tempfile + rename), which OneDrive
+    # observes as a write event. Concurrent writers + repeated no-op writes are
+    # exactly what produces .remote conflict copies. This skip-on-no-change
+    # gate cuts the rate of OneDrive-visible writes to roughly the rate of
+    # *real* content changes.
+    body_hash = hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
+    last_hash = meta.get("last_synced_hash")
+    if last_hash and last_hash == body_hash:
+        return
+
     # Push
     push_url = f"{service_url}/api/sync/documents/{doc_id}/content?base_version={base_version}"
     headers["Content-Type"] = "text/markdown; charset=utf-8"
